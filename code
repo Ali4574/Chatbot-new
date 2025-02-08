@@ -1,0 +1,3120 @@
+//chat.js
+
+
+// import OpenAI from 'openai';
+// import axios from 'axios';
+
+// const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// const functions = [
+//   {
+//     name: 'get_stock_price',
+//     description: 'Get current stock price and basic information',
+//     parameters: {
+//       type: 'object',
+//       properties: {
+//         symbol: { type: 'string', description: 'Stock symbol like AAPL for Apple' },
+//       },
+//       required: ['symbol'],
+//     },
+//   },
+//   {
+//     name: 'get_crypto_price',
+//     description: 'Get current cryptocurrency price and basic information',
+//     parameters: {
+//       type: 'object',
+//       properties: {
+//         symbol: { type: 'string', description: 'Cryptocurrency symbol like BTC for Bitcoin' },
+//       },
+//       required: ['symbol'],
+//     },
+//   },
+// ];
+
+// async function getStockPrice(symbol) {
+//   const response = await axios.get('https://alpha-vantage.p.rapidapi.com/query', {
+//     params: {
+//       function: 'GLOBAL_QUOTE',
+//       symbol: symbol,
+//       datatype: 'json',
+//     },
+//     headers: {
+//       'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
+//       'X-RapidAPI-Host': process.env.NEXT_PUBLIC_RAPIDAPI_HOST,
+//     },
+//   });
+  
+//   return {
+//     price: response.data['Global Quote']['05. price'],
+//     change: response.data['Global Quote']['09. change'],
+//     changePercent: response.data['Global Quote']['10. change percent'],
+//     latestTradingDay: response.data['Global Quote']['07. latest trading day'],
+//   };
+// }
+
+// async function getCryptoPrice(symbol) {
+//   const response = await axios.get('https://alpha-vantage.p.rapidapi.com/query', {
+//     params: {
+//       function: 'CURRENCY_EXCHANGE_RATE',
+//       from_currency: symbol,
+//       to_currency: 'USD',
+//     },
+//     headers: {
+//       'X-RapidAPI-Key': process.env.RAPIDAPI_KEY,
+//       'X-RapidAPI-Host': process.env.NEXT_PUBLIC_RAPIDAPI_HOST,
+//     },
+//   });
+
+//   return {
+//     price: response.data['Realtime Currency Exchange Rate']['5. Exchange Rate'],
+//     lastRefreshed: response.data['Realtime Currency Exchange Rate']['6. Last Refreshed'],
+//     bidPrice: response.data['Realtime Currency Exchange Rate']['8. Bid Price'],
+//     askPrice: response.data['Realtime Currency Exchange Rate']['9. Ask Price'],
+//   };
+// }
+
+// export default async function handler(req, res) {
+//   if (req.method !== 'POST') return res.status(405).end();
+
+//   try {
+//     const { messages } = req.body;
+//     const initialResponse = await openai.chat.completions.create({
+//       model: 'gpt-3.5-turbo',
+//       messages,
+//       functions,
+//       function_call: 'auto',
+//     });
+
+//     const message = initialResponse.choices[0].message;
+    
+//     if (message.function_call) {
+//       const functionName = message.function_call.name;
+//       const args = JSON.parse(message.function_call.arguments);
+//       let functionResponse;
+
+//       if (functionName === 'get_stock_price') {
+//         functionResponse = await getStockPrice(args.symbol);
+//       } else if (functionName === 'get_crypto_price') {
+//         functionResponse = await getCryptoPrice(args.symbol);
+//       }
+
+//       // Structured response template
+//       const responseTemplate = `Generate a professional financial response including:
+//       1. Current price with change percentage in bold
+//       2. Key statistics in a simple table
+//       3. Brief market context (1-2 sentences)
+//       4. Recent relevant news (use placeholder if no real data)
+//       5. Standard disclaimer
+      
+//       Use this data: ${JSON.stringify(functionResponse)}
+//       Format with clean line breaks and ► bullet points.`;
+
+//       const finalResponse = await openai.chat.completions.create({
+//         model: 'gpt-3.5-turbo',
+//         messages: [
+//           ...messages,
+//           {
+//             role: 'system',
+//             content: 'You are a financial analyst assistant. Provide responses in structured markdown format without emojis.'
+//           },
+//           {
+//             role: 'user',
+//             content: responseTemplate
+//           }
+//         ],
+//         temperature: 0.6,
+//         max_tokens: 500,
+//       });
+
+//       return res.json({ 
+//         message: {
+//           ...finalResponse.choices[0].message,
+//           rawData: functionResponse // Optional: include raw data for reference
+//         }
+//       });
+//     }
+
+//     res.json({ message });
+//   } catch (error) {
+//     console.error('API Error:', error);
+//     res.status(500).json({ 
+//       error: 'Financial data currently unavailable. Please try again later.',
+//       details: process.env.NODE_ENV === 'development' ? error.message : undefined
+//     });
+//   }
+// }
+
+
+
+
+//index.js
+
+// import { useState, useRef, useEffect } from 'react';
+// import axios from 'axios';
+// import { Box, TextField, Button, CircularProgress, Avatar, Typography, IconButton, Grid, Paper } from '@mui/material';
+// import { Send as SendIcon, SmartToy as BotIcon } from '@mui/icons-material';
+// import ReactMarkdown from 'react-markdown';
+// import { styled } from '@mui/material/styles';
+
+// const ChatContainer = styled(Box)(({ theme }) => ({
+//   height: '80vh',
+//   display: 'flex',
+//   flexDirection: 'column',
+//   backgroundColor: theme.palette.background.default,
+//   borderRadius: theme.shape.borderRadius,
+//   boxShadow: theme.shadows[2],
+// }));
+
+// const MessageBubble = styled(Paper)(({ theme, role }) => ({
+//   maxWidth: '70%',
+//   padding: theme.spacing(1.5),
+//   marginBottom: theme.spacing(2),
+//   backgroundColor: role === 'user' ? theme.palette.primary.light : theme.palette.grey[100],
+//   color: role === 'user' ? theme.palette.primary.contrastText : theme.palette.text.primary,
+//   borderRadius: role === 'user' ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
+//   alignSelf: role === 'user' ? 'flex-end' : 'flex-start',
+//   wordBreak: 'break-word',
+// }));
+
+// export default function Chat() {
+//   const [messages, setMessages] = useState([]);
+//   const [input, setInput] = useState('');
+//   const [loading, setLoading] = useState(false);
+//   const messagesEndRef = useRef(null);
+
+//   const scrollToBottom = () => {
+//     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+//   };
+
+//   useEffect(scrollToBottom, [messages]);
+
+//   const handleSubmit = async (e) => {
+//     e.preventDefault();
+//     if (!input.trim() || loading) return;
+
+//     setLoading(true);
+//     const userMessage = { role: 'user', content: input };
+//     setMessages((prev) => [...prev, userMessage]);
+//     setInput('');
+
+//     try {
+//       const { data } = await axios.post('/api/chat', {
+//         messages: [...messages, userMessage],
+//       });
+
+//       setMessages((prev) => [...prev, data.message]);
+//     } catch (error) {
+//       console.error(error.message);
+//       setMessages((prev) => [
+//         ...prev,
+//         { role: 'assistant', content: '⚠️ Error: Unable to process your request.' },
+//       ]);
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   return (
+//     <Box sx={{ maxWidth: '800px', mx: 'auto', p: 3, height: '100vh', display: 'flex', flexDirection: 'column' }}>
+//       <Typography
+//         variant="h4"
+//         sx={{
+//           mb: 3,
+//           fontWeight: 600,
+//           color: 'primary.main',
+//           display: 'flex',
+//           alignItems: 'center',
+//           gap: 1.5,
+//         }}
+//       >
+//         <BotIcon fontSize="large" /> Stock & Crypto Assistant
+//       </Typography>
+
+//       <ChatContainer>
+//         <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
+//           {messages.map((msg, i) => (
+//             <MessageBubble key={i} role={msg.role} elevation={0}>
+//               <Grid container spacing={1}>
+//                 <Grid item xs={12} sm={3}>
+//                   <Avatar sx={{ width: 32, height: 32, bgcolor: msg.role === 'user' ? 'primary.dark' : 'grey.500' }}>
+//                     {msg.role === 'user' ? '👤' : '🤖'}
+//                   </Avatar>
+//                 </Grid>
+//                 <Grid item xs={12} sm={9}>
+//                   <ReactMarkdown>{msg.content || 'Fetching real-time data...'}</ReactMarkdown>
+//                 </Grid>
+//               </Grid>
+//             </MessageBubble>
+//           ))}
+//           {loading && (
+//             <MessageBubble role="assistant">
+//               <Grid container spacing={1}>
+//                 <Grid item xs={12} sm={3}>
+//                   <Avatar sx={{ width: 32, height: 32, bgcolor: 'grey.500' }}>🤖</Avatar>
+//                 </Grid>
+//                 <Grid item xs={12} sm={9}>
+//                   <CircularProgress size={20} />
+//                 </Grid>
+//               </Grid>
+//             </MessageBubble>
+//           )}
+//           <div ref={messagesEndRef} />
+//         </Box>
+
+//         <Box component="form" onSubmit={handleSubmit} sx={{ p: 2, borderTop: '1px solid', display: 'flex', gap: 1.5 }}>
+//           <TextField
+//             fullWidth
+//             variant="outlined"
+//             size="small"
+//             value={input}
+//             onChange={(e) => setInput(e.target.value)}
+//             placeholder="Ask about stock/crypto prices..."
+//             disabled={loading}
+//           />
+//           <IconButton type="submit" color="primary" disabled={loading}>
+//             <SendIcon />
+//           </IconButton>
+//         </Box>
+//       </ChatContainer>
+//     </Box>
+//   );
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// // pages/api/route.js
+
+// import { NextResponse } from 'next/server';
+// import OpenAI from 'openai';
+// import axios from 'axios';
+// import mongoose from 'mongoose';
+// import CompanyInfo from '@/src/models/CompanyInfo';
+// import dotenv from 'dotenv';
+
+// dotenv.config({ path: '.env.local' });
+
+// const MONGODB_URI = process.env.MONGODB_URI;
+// if (!mongoose.connection.readyState) {
+//   mongoose.connect(MONGODB_URI, {
+//     useNewUrlParser: true,
+//     useUnifiedTopology: true,
+//   }).then(() => console.log('Connected to MongoDB Atlas'))
+//     .catch(err => console.error('MongoDB connection error:', err));
+// }
+
+// const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// // Upstox API configuration
+// const UPSTOX_BASE_URL = 'https://api.upstox.com';
+// const UPSTOX_ACCESS_TOKEN = process.env.UPSTOX_ACCESS_TOKEN; // must be generated via your Upstox app
+
+// // --- Function Implementations ---
+
+// // Fetch real-time stock prices using Upstox LTP endpoint.
+// // Assumes instrument tokens in the format "NSE_EQ|<symbol>".
+// async function getStockPrice(symbols) {
+//     const results = [];
+//     for (const symbol of symbols) {
+//       try {
+//         // Format instrument token for Upstox: e.g. "NSE_EQ|RELIANCE"
+//         const instrument = `NSE_EQ|${symbol}`;
+//         const response = await axios.get(`${UPSTOX_BASE_URL}/v2/market-quote/ltp`, {
+//           params: { instruments: instrument },
+//           headers: {
+//             'Authorization': `Bearer ${UPSTOX_ACCESS_TOKEN}`,
+//             'Content-Type': 'application/json'
+//           },
+//         });
+//         // Response expected to be like: { ltp: { "NSE_EQ|RELIANCE": 2000.45 } }
+//         const ltp = response.data.ltp && response.data.ltp[instrument] ? response.data.ltp[instrument] : null;
+//         results.push({ symbol, ltp, name: symbol });
+//       } catch (error) {
+//         console.error(`Error fetching stock price for ${symbol}:`, error.message);
+//         results.push({ symbol, error: 'Unable to fetch data' });
+//       }
+//     }
+//     return results;
+//   }
+  
+
+// // Fetch top stocks using Upstox full market quote endpoint.
+// // Sorting is based on either market cap or performance.
+// async function getTopStocks(filter, limit = 10) {
+//   try {
+//     const response = await axios.get(`${UPSTOX_BASE_URL}/v2/market-quote/quotes`, {
+//       params: { exchange: 'NSE_EQ' },
+//       headers: {
+//         'Authorization': `Bearer ${UPSTOX_ACCESS_TOKEN}`,
+//         'Content-Type': 'application/json'
+//       },
+//     });
+//     let quotes = response.data.quotes || [];
+//     // Sort based on the filter criteria
+//     if (filter === 'performance') {
+//       quotes.sort((a, b) => b.changePercentage - a.changePercentage);
+//     } else if (filter === 'market_cap') {
+//       quotes.sort((a, b) => b.marketCap - a.marketCap);
+//     }
+//     quotes = quotes.slice(0, limit);
+//     // Merge required fields
+//     const merged = quotes.map(stock => ({
+//       symbol: stock.ticker,
+//       ltp: stock.ltp,
+//       change: stock.change,
+//       changePercentage: stock.changePercentage,
+//       companyName: stock.companyName,
+//     }));
+//     return merged;
+//   } catch (error) {
+//     console.error('Error fetching top stocks:', error.message);
+//     return { error: 'Unable to fetch top stocks' };
+//   }
+// }
+
+// // For crypto data we fallback to CoinGecko as Upstox does not provide crypto data.
+// async function getCryptoPrice(symbols) {
+//   const results = [];
+//   for (const symbol of symbols) {
+//     try {
+//       // Assume CoinGecko id is the lowercase symbol.
+//       const response = await axios.get('https://api.coingecko.com/api/v3/coins/markets', {
+//         params: {
+//           vs_currency: 'usd',
+//           ids: symbol.toLowerCase(),
+//           order: 'market_cap_desc',
+//           per_page: 1,
+//           page: 1,
+//           sparkline: false,
+//         },
+//       });
+//       const data = response.data[0];
+//       results.push({
+//         symbol: data.symbol.toUpperCase(),
+//         ltp: data.current_price,
+//         name: data.name,
+//       });
+//     } catch (error) {
+//       console.error(`Error fetching crypto price for ${symbol}:`, error.message);
+//       results.push({ symbol, error: 'Unable to fetch data' });
+//     }
+//   }
+//   return results;
+// }
+
+// async function getTopCryptos(filter, limit = 10) {
+//   try {
+//     const response = await axios.get('https://api.coingecko.com/api/v3/coins/markets', {
+//       params: {
+//         vs_currency: 'usd',
+//         order: filter === 'performance' ? 'price_change_percentage_24h_desc' : 'market_cap_desc',
+//         per_page: limit,
+//         page: 1,
+//         sparkline: false,
+//       },
+//     });
+//     return response.data.map(crypto => ({
+//       symbol: crypto.symbol.toUpperCase(),
+//       ltp: crypto.current_price,
+//       marketCap: crypto.market_cap,
+//       changePercentage: crypto.price_change_percentage_24h,
+//       name: crypto.name,
+//     }));
+//   } catch (error) {
+//     console.error('Error fetching top cryptos:', error.message);
+//     return { error: 'Unable to fetch top cryptos' };
+//   }
+// }
+
+// // Fetch company information from MongoDB.
+// async function getCompanyInfo(args) {
+//   let category = args?.category || 'all';
+//   if (category === 'subscription') {
+//     category = 'pricing';
+//   }
+//   const companyDoc = await CompanyInfo.findOne({ name: "Profit Flow" }).lean();
+//   if (!companyDoc) {
+//     throw new Error("Company information not found in the database.");
+//   }
+//   return category === 'all' ? companyDoc : { [category]: companyDoc[category] };
+// }
+
+// // --- Next.js API Route ---
+// // Note: We leave your original function-call structure intact so that OpenAI can decide which function to call.
+// export async function POST(request) {
+//   try {
+//     const { messages } = await request.json();
+
+//     const initialResponse = await openai.chat.completions.create({
+//       model: 'gpt-4o',
+//       messages,
+//       functions: [
+//         {
+//           name: 'get_stock_price',
+//           description: 'Get real-time stock price from Upstox',
+//           parameters: {
+//             type: 'object',
+//             properties: {
+//               symbols: {
+//                 type: 'array',
+//                 items: { type: 'string' },
+//                 description: 'Stock symbols e.g., ["RELIANCE", "TCS"]'
+//               }
+//             },
+//             required: ['symbols'],
+//           },
+//         },
+//         {
+//           name: 'get_crypto_price',
+//           description: 'Get real-time cryptocurrency price using CoinGecko',
+//           parameters: {
+//             type: 'object',
+//             properties: {
+//               symbols: {
+//                 type: 'array',
+//                 items: { type: 'string' },
+//                 description: 'Crypto symbols e.g., ["BTC", "ETH"]'
+//               }
+//             },
+//             required: ['symbols'],
+//           },
+//         },
+//         {
+//           name: 'get_top_stocks',
+//           description: 'Get top stocks from Upstox data by market cap or performance',
+//           parameters: {
+//             type: 'object',
+//             properties: {
+//               filter: {
+//                 type: 'string',
+//                 enum: ['market_cap', 'performance'],
+//                 description: 'Filter by market cap or performance'
+//               },
+//               limit: {
+//                 type: 'number',
+//                 description: 'Number of top stocks to fetch'
+//               }
+//             },
+//             required: ['filter'],
+//           },
+//         },
+//         {
+//           name: 'get_top_cryptos',
+//           description: 'Get top cryptocurrencies by market cap or performance',
+//           parameters: {
+//             type: 'object',
+//             properties: {
+//               filter: {
+//                 type: 'string',
+//                 enum: ['market_cap', 'performance'],
+//                 description: 'Filter by market cap or performance'
+//               },
+//               limit: {
+//                 type: 'number',
+//                 description: 'Number of top cryptos to fetch'
+//               }
+//             },
+//             required: ['filter'],
+//           },
+//         },
+//         {
+//           name: 'get_company_info',
+//           description: 'Get information about Profit Flow company and services',
+//           parameters: {
+//             type: 'object',
+//             properties: {
+//               category: {
+//                 type: 'string',
+//                 enum: ['all', 'features', 'pricing', 'benefits', 'support', 'faq', 'subscription'],
+//                 description: 'Category of information requested'
+//               },
+//             },
+//           },
+//         },
+//       ],
+//       function_call: 'auto',
+//     });
+
+//     const message = initialResponse.choices[0].message;
+//     if (message.function_call) {
+//       const functionName = message.function_call.name;
+//       const args = JSON.parse(message.function_call.arguments);
+//       let functionResponse;
+//       switch (functionName) {
+//         case 'get_stock_price':
+//           functionResponse = await getStockPrice(args.symbols);
+//           break;
+//         case 'get_crypto_price':
+//           functionResponse = await getCryptoPrice(args.symbols);
+//           break;
+//         case 'get_top_stocks':
+//           functionResponse = await getTopStocks(args.filter, args.limit || 10);
+//           break;
+//         case 'get_top_cryptos':
+//           functionResponse = await getTopCryptos(args.filter, args.limit || 10);
+//           break;
+//         case 'get_company_info':
+//           functionResponse = await getCompanyInfo(args);
+//           break;
+//         default:
+//           functionResponse = { error: 'Function not supported' };
+//       }
+//       let finalResponse;
+//       if (functionName === 'get_company_info') {
+//         finalResponse = await openai.chat.completions.create({
+//           model: 'gpt-4o',
+//           messages: [
+//             ...messages,
+//             {
+//               role: 'system',
+//               content: 'You are a friendly advisor providing company information. Keep your response clear, concise, and conversational. Limit your answer to under three paragraphs and include any offers naturally.',
+//             },
+//             {
+//               role: 'user',
+//               content: `Company Data:\n${JSON.stringify(functionResponse, null, 2)}`,
+//             },
+//           ],
+//           temperature: 0.7,
+//           max_tokens: 500,
+//         });
+//       } else {
+//         const responseTemplate = `Please generate a creative and professional financial update using the data provided below.
+  
+// • **Current Data / Key Metrics:** Clearly state the current price or list top metrics.
+// • **Statistics Summary:** Present the key statistics as bullet points with adequate spacing.
+// • **Market Context:** Include a brief one to two sentence overview of the market.
+// • **Relevant News:** Add a note on recent news (use a placeholder if actual data is unavailable).
+// • **Disclaimer:** End with a standard disclaimer.
+  
+// Data:
+// ${JSON.stringify(functionResponse, null, 2)}
+
+// Ensure your response is engaging, well-structured, and adapts to the query context.`;
+//         finalResponse = await openai.chat.completions.create({
+//           model: 'gpt-4o',
+//           messages: [
+//             ...messages,
+//             {
+//               role: 'system',
+//               content: 'You are a financial analyst assistant. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include suggestions when relevant.',
+//             },
+//             {
+//               role: 'user',
+//               content: responseTemplate,
+//             },
+//           ],
+//           temperature: 0.6,
+//           max_tokens: 1000,
+//         });
+//       }
+//       return NextResponse.json({
+//         ...finalResponse.choices[0].message,
+//         rawData: functionResponse,
+//         functionName: message.function_call.name,
+//       });
+//     } else {
+//       // If no function call is detected, fallback to a simple response.
+//       return NextResponse.json({
+//         role: 'assistant',
+//         content: message.content || "I'm here to help! Could you please clarify your request?",
+//       });
+//     }
+//   } catch (error) {
+//     console.error('API Error:', error.message);
+//     return NextResponse.json(
+//       {
+//         error: 'Financial data currently unavailable. Please try again later.',
+//         details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+//       },
+//       { status: 500 }
+//     );
+//   }
+// }
+
+// /*
+// Steps to Create and Use the Upstox API:
+
+// 1. Sign up for an Upstox account and log in to the Upstox Pro app or web platform.
+// 2. Navigate to the 'Developer' section (or Developer Console) and create a new app.
+// 3. Generate your API key and API secret from the Upstox Developer Console.
+// 4. Use these credentials to obtain an access token by making a POST request to:
+//    https://api.upstox.com/v2/login/authorization/token
+//    (Include the required parameters: client_id, client_secret, code, redirect_uri, grant_type)
+// 5. Once you receive the access token, store it in your .env.local file as UPSTOX_ACCESS_TOKEN.
+// 6. In this code, the access token is used in the Authorization header for Upstox API calls.
+// 7. For more details on the endpoints and parameters, review the Upstox API documentation:
+//    https://upstox.com/developer/api-documentation/ 
+// 8. Note: Upstox does not provide crypto data; hence, CoinGecko is used as a fallback.
+
+// This code preserves your original OpenAI function-call mechanism while using the Upstox API for stock data.
+// */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// this is my when i add prompt to strictly denie off topic question or stock 
+// when i ask price of apple stock it didnt provide a summary or current price but provides a chart
+
+// // src/app/api/chat/route.js
+
+// import { NextResponse } from 'next/server';
+// import OpenAI from 'openai';
+// import mongoose from 'mongoose';
+// import CompanyInfo from '@/src/models/CompanyInfo';
+// import dotenv from 'dotenv';
+// import yahooFinance from 'yahoo-finance2';
+// import axios from 'axios';
+
+// dotenv.config({ path: '.env.local' });
+
+// const MONGODB_URI = process.env.MONGODB_URI;
+
+// // Reuse MongoDB connection in a serverless environment
+// if (!mongoose.connection.readyState) {
+//   mongoose
+//     .connect(MONGODB_URI, {
+//       useNewUrlParser: true,
+//       useUnifiedTopology: true,
+//     })
+//     .then(() => console.log('Connected to MongoDB Atlas'))
+//     .catch((err) => console.error('MongoDB connection error:', err));
+// }
+
+// const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// // Updated function definitions with additional parameters for exchange/currency and price filtering.
+// const functions = [
+//   {
+//     name: 'get_stock_price',
+//     description:
+//       'Get real-time stock price (current quote), historical price data, and basic information for one or more stock symbols. Optionally, specify the exchange ("US" or "IN") and a maximum price (underPrice).',
+//     parameters: {
+//       type: 'object',
+//       properties: {
+//         symbols: {
+//           type: 'array',
+//           items: { type: 'string' },
+//           description:
+//             'Array of stock symbols like ["AAPL", "GOOGL"] for Apple and Google.',
+//         },
+//         exchange: {
+//           type: 'string',
+//           enum: ['US', 'IN'],
+//           description:
+//             'Stock exchange region, default is US. For Indian stocks use "IN".',
+//         },
+//         underPrice: {
+//           type: 'number',
+//           description:
+//             'Optional: filter stocks with current price under this value (in INR if exchange is IN).',
+//         },
+//       },
+//       required: ['symbols'],
+//     },
+//   },
+//   // ... (other functions remain unchanged)
+//   {
+//     name: 'get_crypto_price',
+//     description:
+//       'Get real-time cryptocurrency price (current quote) and basic information for one or more crypto symbols. Optionally, specify the currency ("USD" or "INR") and a maximum price (underPrice).',
+//     parameters: {
+//       type: 'object',
+//       properties: {
+//         symbols: {
+//           type: 'array',
+//           items: { type: 'string' },
+//           description:
+//             'Array of cryptocurrency symbols like ["BTC", "ETH"] for Bitcoin and Ethereum.',
+//         },
+//         currency: {
+//           type: 'string',
+//           enum: ['USD', 'INR'],
+//           description:
+//             'Currency for the price. Default is USD. For INR conversion, use "INR".',
+//         },
+//         underPrice: {
+//           type: 'number',
+//           description:
+//             'Optional: filter cryptos with current price under this value (in the specified currency).',
+//         },
+//       },
+//       required: ['symbols'],
+//     },
+//   },
+//   {
+//     name: 'get_top_stocks',
+//     description:
+//       'Get the trending stocks in real time. Optionally, specify the exchange ("US" or "IN") and a price filter (underPrice).',
+//     parameters: {
+//       type: 'object',
+//       properties: {
+//         limit: {
+//           type: 'number',
+//           description: 'Number of top stocks to fetch (default is 10).',
+//         },
+//         exchange: {
+//           type: 'string',
+//           enum: ['US', 'IN'],
+//           description: 'Exchange to fetch stocks from. Use "IN" for Indian stocks.',
+//         },
+//         underPrice: {
+//           type: 'number',
+//           description:
+//             'Optional: filter stocks with price under this value (in INR if exchange is IN).',
+//         },
+//       },
+//     },
+//   },
+//   {
+//     name: 'get_top_cryptos',
+//     description:
+//       'Get the trending cryptocurrencies in real time. Optionally, specify the currency ("USD" or "INR") and a price filter (underPrice).',
+//     parameters: {
+//       type: 'object',
+//       properties: {
+//         limit: {
+//           type: 'number',
+//           description: 'Number of top cryptos to fetch (default is 10).',
+//         },
+//         currency: {
+//           type: 'string',
+//           enum: ['USD', 'INR'],
+//           description:
+//             'Currency for the price. Default is USD. For INR conversion, use "INR".',
+//         },
+//         underPrice: {
+//           type: 'number',
+//           description:
+//             'Optional: filter cryptos with current price under this value (in the specified currency).',
+//         },
+//       },
+//     },
+//   },
+//   {
+//     name: 'get_company_info',
+//     description: 'Get information about Profit Flow company and services',
+//     parameters: {
+//       type: 'object',
+//       properties: {
+//         category: {
+//           type: 'string',
+//           enum: [
+//             'all',
+//             'features',
+//             'pricing',
+//             'benefits',
+//             'support',
+//             'faq',
+//             'subscription',
+//           ],
+//           description: 'Category of information requested',
+//         },
+//       },
+//     },
+//   },
+// ];
+
+// /**
+//  * Helper: Fetch realtime data for a ticker.
+//  */
+// async function fetchRealtimeData(ticker) {
+//   try {
+//     const quote = await yahooFinance.quote(ticker);
+//     if (!quote) return null;
+//     const now = new Date().toLocaleString();
+//     return { dates: [now], prices: [quote.regularMarketPrice] };
+//   } catch (error) {
+//     console.error(`Error fetching realtime data for ${ticker}:`, error);
+//     return null;
+//   }
+// }
+
+// /**
+//  * Helper: Fetch historical data for a ticker.
+//  * This function retrieves historical closing prices from period1 to period2.
+//  */
+// async function fetchHistoricalData(ticker, period1, period2, interval = '1d') {
+//   try {
+//     // yahooFinance.historical returns an array of objects with a date and price data
+//     const historical = await yahooFinance.historical(ticker, { period1, period2, interval });
+//     // Map the data to include only date and closing price
+//     return historical.map(item => ({
+//       date: item.date, // date can be used for the x-axis in a chart
+//       price: item.close, // using closing price for chart data
+//     }));
+//   } catch (error) {
+//     console.error(`Error fetching historical data for ${ticker}:`, error);
+//     return [];
+//   }
+// }
+
+// /**
+//  * Fetch real-time stock data.
+//  * If exchange is "IN", automatically append ".NS" to symbols that lack an exchange suffix.
+//  * Optionally filter results under a specified price.
+//  * Additionally, this function fetches historical data (e.g., past 30 days) to build a chart.
+//  */
+// async function getStockPrice(symbols, exchange = 'US', underPrice) {
+//   const results = [];
+//   // Define historical range (past 30 days)
+//   const now = new Date();
+//   const past30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+//   for (let symbol of symbols) {
+//     try {
+//       let querySymbol = symbol;
+//       if (exchange === 'IN') {
+//         // Append ".NS" if not already provided (for NSE)
+//         if (!symbol.includes('.') && /^[A-Z]+$/.test(symbol)) {
+//           querySymbol = `${symbol}.NS`;
+//         }
+//       }
+//       const quote = await yahooFinance.quote(querySymbol);
+//       const rtData = await fetchRealtimeData(querySymbol);
+//       if (!rtData) {
+//         results.push({ symbol, error: 'No real-time data available' });
+//         continue;
+//       }
+//       // Fetch historical data for the past 30 days using daily interval
+//       const history = await fetchHistoricalData(querySymbol, past30Days, now, '1d');
+//       results.push({
+//         symbol: querySymbol,
+//         name: quote.longName || symbol,
+//         // Current data from realtime call
+//         dates: rtData.dates,
+//         prices: rtData.prices,
+//         // Additional history data to be used in chart
+//         history,
+//         change: quote.regularMarketChange,
+//         changePercentage: quote.regularMarketChangePercent,
+//         marketCap: quote.marketCap,
+//       });
+//     } catch (error) {
+//       console.error(`Error fetching stock price for ${symbol}:`, error);
+//       results.push({ symbol, error: 'Unable to fetch data' });
+//     }
+//   }
+//   if (underPrice !== undefined) {
+//     return results.filter((r) => r.prices[0] < underPrice);
+//   }
+//   return results;
+// }
+
+// // The functions getCryptoPrice, getTopStocks, getTopCryptos, and getCompanyInfo remain unchanged
+
+// /**
+//  * Fetch real-time cryptocurrency data.
+//  * If currency is "INR", convert the USD price using the latest conversion rate from Yahoo Finance.
+//  * Optionally filter results under a specified price.
+//  */
+// async function getCryptoPrice(symbols, currency = 'USD', underPrice) {
+//   let conversionRate = 1;
+//   if (currency === 'INR') {
+//     try {
+//       const rateQuote = await yahooFinance.quote('USDINR=X');
+//       conversionRate = rateQuote.regularMarketPrice || 1;
+//     } catch (error) {
+//       console.error('Error fetching conversion rate:', error);
+//     }
+//   }
+//   const results = [];
+//   for (let symbol of symbols) {
+//     try {
+//       if (!symbol.includes('-')) {
+//         symbol = `${symbol}-USD`;
+//       }
+//       const quote = await yahooFinance.quote(symbol);
+//       const rtData = await fetchRealtimeData(symbol);
+//       if (!rtData) {
+//         results.push({ symbol, error: 'No real-time data available' });
+//         continue;
+//       }
+//       let price = rtData.prices[0];
+//       if (currency === 'INR') {
+//         price = price * conversionRate;
+//       }
+//       results.push({
+//         symbol,
+//         name: quote.shortName || symbol,
+//         dates: rtData.dates,
+//         prices: [price],
+//         change: quote.regularMarketChange,
+//         changePercentage: quote.regularMarketChangePercent,
+//         marketCap: quote.marketCap,
+//       });
+//     } catch (error) {
+//       console.error(`Error fetching crypto price for ${symbol}:`, error);
+//       results.push({ symbol, error: 'Unable to fetch data' });
+//     }
+//   }
+//   if (underPrice !== undefined) {
+//     const filtered = results.filter((r) => r.prices[0] < underPrice);
+//     return filtered.length > 0 ? filtered : [{ message: `No cryptocurrencies found with a price under ${underPrice}.` }];
+//   }
+//   return results;
+// }
+
+// /**
+//  * Fetch trending (top) stocks in real time.
+//  * For exchange "IN", attempt to fetch trending stocks from NSE's live-analysis API.
+//  * If the endpoint returns no data or fails, return an error without falling back to a manual list.
+//  * Optionally filter results under a specified price.
+//  */
+// async function getTopStocks(limit = 10, exchange = 'US', underPrice) {
+//   let results = [];
+//   if (exchange === 'IN') {
+//     try {
+//       // Step 1: Get cookies from NSE homepage
+//       const cookieResponse = await axios.get('https://www.nseindia.com', {
+//         headers: {
+//           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+//           'Accept-Language': 'en-US,en;q=0.9'
+//         }
+//       });
+//       const cookies = cookieResponse.headers['set-cookie'];
+//       const cookieHeader = cookies ? cookies.join('; ') : '';
+
+//       // Step 2: Use the cookies (and additional headers) for the trending stocks endpoint
+//       const nseResponse = await axios.get(
+//         'https://www.nseindia.com/api/live-analysis-variations?index=gainers',
+//         {
+//           headers: {
+//             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+//             'Accept': 'application/json',
+//             'Accept-Language': 'en-US,en;q=0.9',
+//             'Referer': 'https://www.nseindia.com/',
+//             'Cookie': cookieHeader,
+//           },
+//         }
+//       );
+//       const trendingData = nseResponse.data?.NIFTY?.data;
+//       if (!trendingData || trendingData.length === 0) {
+//         throw new Error('No trending data available from NSE API');
+//       }
+//       // Extract symbols and ensure they have the ".NS" suffix
+//       const symbols = trendingData
+//         .map((item) => item.symbol)
+//         .slice(0, limit)
+//         .map((sym) => (sym.includes('.') ? sym : sym + '.NS'));
+//       for (const symbol of symbols) {
+//         try {
+//           const quote = await yahooFinance.quote(symbol);
+//           const rtData = await fetchRealtimeData(symbol);
+//           if (!rtData) continue;
+//           results.push({
+//             symbol,
+//             name: quote.longName || symbol,
+//             dates: rtData.dates,
+//             prices: rtData.prices,
+//             change: quote.regularMarketChange,
+//             changePercentage: quote.regularMarketChangePercent,
+//             marketCap: quote.marketCap,
+//           });
+//         } catch (err) {
+//           console.error(`Error fetching realtime data for ${symbol}:`, err);
+//         }
+//       }
+//     } catch (error) {
+//       console.error('Error fetching top stocks from NSE:', error);
+//       return { error: 'Unable to fetch trending Indian stocks from NSE.' };
+//     }
+//   } else {
+//     // Default: fetch trending US stocks.
+//     try {
+//       const trending = await yahooFinance.trendingSymbols('US');
+//       if (!trending?.quotes?.length) {
+//         throw new Error('No trending stocks data available');
+//       }
+//       const symbols = trending.quotes.map((q) => q.symbol).slice(0, limit);
+//       for (const symbol of symbols) {
+//         try {
+//           const quote = await yahooFinance.quote(symbol);
+//           const rtData = await fetchRealtimeData(symbol);
+//           if (!rtData) continue;
+//           results.push({
+//             symbol,
+//             name: quote.longName || symbol,
+//             dates: rtData.dates,
+//             prices: rtData.prices,
+//             change: quote.regularMarketChange,
+//             changePercentage: quote.regularMarketChangePercent,
+//             marketCap: quote.marketCap,
+//           });
+//         } catch (err) {
+//           console.error(`Error fetching realtime data for ${symbol}:`, err);
+//         }
+//       }
+//     } catch (error) {
+//       console.error('Error fetching top stocks:', error);
+//       return { error: 'Unable to fetch top stocks' };
+//     }
+//   }
+//   if (underPrice !== undefined) {
+//     results = results.filter((r) => r.prices[0] < underPrice);
+//   }
+//   return results;
+// }
+
+// /**
+//  * Fetch trending (top) cryptocurrencies in real time.
+//  * If currency is "INR", convert prices using the USD to INR rate.
+//  * Optionally filter results under a specified price.
+//  */
+// async function getTopCryptos(limit = 10, currency = 'USD', underPrice) {
+//   let conversionRate = 1;
+//   if (currency === 'INR') {
+//     try {
+//       const rateQuote = await yahooFinance.quote('USDINR=X');
+//       conversionRate = rateQuote.regularMarketPrice || 1;
+//     } catch (error) {
+//       console.error('Error fetching conversion rate:', error);
+//     }
+//   }
+//   try {
+//     const response = await fetch(
+//       `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${limit}&page=1`
+//     );
+//     const coins = await response.json();
+//     if (!coins || !coins.length) {
+//       throw new Error('Failed to fetch top cryptocurrencies');
+//     }
+//     let results = [];
+//     for (const coin of coins) {
+//       const symbol = `${coin.symbol.toUpperCase()}-USD`; // Yahoo Finance format
+//       try {
+//         const quote = await yahooFinance.quote(symbol);
+//         const rtData = await fetchRealtimeData(symbol);
+//         if (!rtData) continue;
+//         let price = rtData.prices[0];
+//         if (currency === 'INR') {
+//           price = price * conversionRate;
+//         }
+//         results.push({
+//           symbol,
+//           name: quote.shortName || coin.name,
+//           dates: rtData.dates,
+//           prices: [price],
+//           change: quote.regularMarketChange,
+//           changePercentage: quote.regularMarketChangePercent,
+//           marketCap: quote.marketCap,
+//         });
+//       } catch (err) {
+//         console.error(`Error processing ${symbol}:`, err);
+//       }
+//     }
+//     if (underPrice !== undefined) {
+//       results = results.filter((r) => r.prices[0] < underPrice);
+//       return results.length > 0 ? results : [{ message: `No cryptocurrencies found with a price under ${underPrice}.` }];
+//     }
+//     return results;
+//   } catch (error) {
+//     console.error('Error fetching top cryptos:', error);
+//     return { error: 'Unable to fetch top cryptos' };
+//   }
+// }
+
+// /**
+//  * Fetch company information from MongoDB Atlas.
+//  */
+// async function getCompanyInfo(args) {
+//   let category = args?.category || 'all';
+//   if (category === 'subscription') {
+//     category = 'pricing';
+//   }
+//   const companyDoc = await CompanyInfo.findOne({ name: 'Profit Flow' }).lean();
+//   if (!companyDoc) {
+//     throw new Error('Company information not found in the database.');
+//   }
+//   return category === 'all' ? companyDoc : { [category]: companyDoc[category] };
+// }
+
+// export async function POST(request) {
+//   try {
+//     const { messages } = await request.json();
+
+//     const initialResponse = await openai.chat.completions.create({
+//       model: 'gpt-4o',
+//       messages,
+//       functions,
+//       function_call: 'auto',
+//     });
+//     const message = initialResponse.choices[0].message;
+
+//     if (message.function_call) {
+//       const functionName = message.function_call.name;
+//       const args = JSON.parse(message.function_call.arguments || '{}');
+//       let functionResponse;
+
+//       // Pass additional parameters (exchange, currency, underPrice) if provided.
+//       switch (functionName) {
+//         case 'get_stock_price':
+//           functionResponse = await getStockPrice(
+//             args.symbols,
+//             args.exchange || 'US',
+//             args.underPrice
+//           );
+//           break;
+//         case 'get_crypto_price':
+//           functionResponse = await getCryptoPrice(
+//             args.symbols,
+//             args.currency || 'USD',
+//             args.underPrice
+//           );
+//           break;
+//         case 'get_top_stocks':
+//           functionResponse = await getTopStocks(
+//             args.limit || 10,
+//             args.exchange || 'US',
+//             args.underPrice
+//           );
+//           break;
+//         case 'get_top_cryptos':
+//           functionResponse = await getTopCryptos(
+//             args.limit || 10,
+//             args.currency || 'USD',
+//             args.underPrice
+//           );
+//           break;
+//         case 'get_company_info':
+//           functionResponse = await getCompanyInfo(args);
+//           break;
+//         default:
+//           functionResponse = { error: 'Function not supported' };
+//       }
+
+//       let finalResponse;
+//       if (functionName === 'get_company_info') {
+//         finalResponse = await openai.chat.completions.create({
+//           model: 'gpt-4o',
+//           messages: [
+//             ...messages,
+//             {
+//               role: 'system',
+//               content:
+//                 'You are a friendly advisor providing company information. Keep your response clear, concise, and conversational. Limit your answer to under three paragraphs and include any offers naturally.',
+//             },
+//             {
+//               role: 'user',
+//               content: `Company Data:\n${JSON.stringify(functionResponse, null, 2)}`,
+//             },
+//           ],
+//           temperature: 0.7,
+//           max_tokens: 500,
+//         });
+//       } else {
+//         const responseTemplate = `Please generate a creative and professional financial update using the data provided below.
+
+// • **Current Data / Key Metrics:** Clearly state the current price or list top metrics.
+// • **Statistics Summary:** Present the key statistics as bullet points with adequate spacing.
+// • **Market Context:** Include a brief one to two sentence overview of the market.
+// • **Relevant News:** Add a note on recent news (use a placeholder if actual data is unavailable).
+// • **Disclaimer:** End with a standard disclaimer.
+
+// Data:
+// ${JSON.stringify(functionResponse, null, 2)}
+
+// Ensure your response is engaging, well-structured, and adapts to the query context.`;
+
+//         finalResponse = await openai.chat.completions.create({
+//           model: 'gpt-4o',
+//           messages: [
+//             ...messages,
+//             {
+//               role: 'system',
+//               content:
+//                 'You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable. If a user asks a question or makes a request that is not directly related to Indian stocks or crypto analysis, respond with: "I\'m sorry, I can only answer questions related to Indian stocks and crypto analysis." Do not attempt to provide any additional information or workaround for off-topic queries.',
+//             },
+//             {
+//               role: 'user',
+//               content: responseTemplate,
+//             },
+//           ],
+//           temperature: 0.6,
+//           max_tokens: 1000,
+//         });
+
+//       }
+
+//       return NextResponse.json({
+//         ...finalResponse.choices[0].message,
+//         rawData: functionResponse,
+//         functionName: message.function_call.name,
+//       });
+//     } else {
+//       return NextResponse.json({
+//         role: 'assistant',
+//         content:
+//           message.content ||
+//           "I'm here to help! Could you please clarify your request?",
+//       });
+//     }
+//   } catch (error) {
+//     console.error('API Error:', error);
+//     return NextResponse.json(
+//       {
+//         error: 'Financial data currently unavailable. Please try again later.',
+//         details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+//       },
+//       { status: 500 }
+//     );
+//   }
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//page.js day of adding action button and logs
+
+
+
+
+// "use client";
+// import { useState, useRef, useEffect } from 'react';
+// import axios from 'axios';
+// import {
+//   Box,
+//   TextField,
+//   CircularProgress,
+//   Avatar,
+//   Typography,
+//   IconButton,
+//   Grid,
+//   ToggleButton,
+//   ToggleButtonGroup,
+//   Button,
+// } from '@mui/material';
+// import { Send as SendIcon, ThumbUpAltOutlined, ThumbDownAltOutlined, FlagOutlined } from '@mui/icons-material';
+// import ReactMarkdown from 'react-markdown';
+// import { styled, keyframes } from '@mui/material/styles';
+// import { Line, Bar } from 'react-chartjs-2';
+// import {
+//   Chart as ChartJS,
+//   CategoryScale,
+//   LinearScale,
+//   PointElement,
+//   LineElement,
+//   BarElement,
+//   Title,
+//   Tooltip,
+//   Legend,
+// } from 'chart.js';
+
+// ChartJS.register(
+//   CategoryScale,
+//   LinearScale,
+//   PointElement,
+//   LineElement,
+//   BarElement,
+//   Title,
+//   Tooltip,
+//   Legend
+// );
+
+// const fadeIn = keyframes`
+//   from { opacity: 0; transform: translateY(10px); }
+//   to { opacity: 1; transform: translateY(0); }
+// `;
+
+// const ChatContainer = styled(Box)(({ theme }) => ({
+//   height: '80vh',
+//   display: 'flex',
+//   flexDirection: 'column',
+//   backgroundColor: 'transparent',
+//   color: '#fff',
+//   borderRadius: theme.shape.borderRadius,
+//   padding: theme.spacing(2),
+//   overflow: 'hidden',
+// }));
+
+// const QuestionBox = styled(Box)(({ theme }) => ({
+//   alignSelf: 'flex-end',
+//   background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+//   color: '#fff',
+//   borderRadius: '20px 20px 20px 0',
+//   padding: theme.spacing(1.5),
+//   marginBottom: theme.spacing(1),
+//   display: 'inline-block',
+//   animation: `${fadeIn} 0.5s ease-out`,
+// }));
+
+// const AnswerText = styled(Box)(({ theme }) => ({
+//   alignSelf: 'flex-start',
+//   padding: theme.spacing(1.5),
+//   marginBottom: theme.spacing(2),
+//   maxWidth: '100%',
+//   lineHeight: 1.8,
+//   animation: `${fadeIn} 0.5s ease-out`,
+//   '& a': {
+//     color: '#2196f3 !important',
+//     textDecoration: 'underline',
+//     fontWeight: 500,
+//     transition: 'all 0.2s ease-in-out',
+//     '&:hover': {
+//       color: '#1976d2 !important',
+//       textDecoration: 'none !important',
+//     },
+//   },
+// }));
+
+// const ChartContainerWrapper = styled(Box)(({ theme }) => ({
+//   marginTop: theme.spacing(2),
+//   marginBottom: theme.spacing(2),
+// }));
+
+// const ChartDisplay = ({ chartData, chartType, chartTitle }) => {
+//   const adjustedData = JSON.parse(JSON.stringify(chartData));
+//   if (chartType === 'bar') {
+//     adjustedData.datasets.forEach((dataset) => {
+//       delete dataset.tension;
+//       dataset.fill = true;
+//     });
+//   }
+//   const commonOptions = {
+//     responsive: true,
+//     maintainAspectRatio: false,
+//     plugins: {
+//       legend: {
+//         position: 'top',
+//         labels: { color: '#fff' },
+//       },
+//       title: {
+//         display: true,
+//         text: chartTitle,
+//         color: '#fff',
+//         font: { size: 16 },
+//       },
+//     },
+//     scales: {
+//       x: {
+//         ticks: { color: '#fff' },
+//         grid: { color: 'rgba(255,255,255,0.2)' },
+//         title: {
+//           display: true,
+//           text:
+//             (chartData.labels &&
+//               chartData.labels[0] &&
+//               (chartData.labels[0].includes('-') || chartData.labels[0].includes('/')))
+//               ? 'Time'
+//               : 'Symbol',
+//           color: '#fff',
+//         },
+//       },
+//       y: {
+//         ticks: { color: '#fff' },
+//         grid: { color: 'rgba(255,255,255,0.2)' },
+//         title: { display: true, text: 'Price (USD)', color: '#fff' },
+//       },
+//     },
+//   };
+
+//   return chartType === 'line' ? (
+//     <Line data={chartData} options={commonOptions} />
+//   ) : (
+//     <Bar data={adjustedData} options={commonOptions} />
+//   );
+// };
+
+// const markdownComponents = {
+//   p: ({ node, ...props }) => (
+//     <p style={{ textAlign: 'justify', textIndent: '1em' }} {...props} />
+//   ),
+//   h1: ({ node, ...props }) => (
+//     <h1
+//       style={{
+//         margin: '1.2em 0 0.5em',
+//         paddingBottom: '0.3em',
+//         fontWeight: 'bold',
+//         textAlign: 'justify',
+//       }}
+//       {...props}
+//     />
+//   ),
+//   h2: ({ node, ...props }) => (
+//     <h2
+//       style={{
+//         margin: '1.2em 0 0.5em',
+//         paddingBottom: '0.3em',
+//         fontWeight: 'bold',
+//         textAlign: 'justify',
+//       }}
+//       {...props}
+//     />
+//   ),
+//   h3: ({ node, ...props }) => (
+//     <h3 style={{ margin: '1em 0 0.5em', fontWeight: 'bold', textAlign: 'justify' }} {...props} />
+//   ),
+//   li: ({ node, ordered, ...props }) => (
+//     <li style={{ marginBottom: '0.5em', marginLeft: '1em', textAlign: 'justify' }} {...props} />
+//   ),
+//   blockquote: ({ node, ...props }) => (
+//     <blockquote
+//       style={{
+//         borderLeft: '4px solid #4bd8d8',
+//         margin: '1em 0',
+//         paddingLeft: '1em',
+//         fontStyle: 'italic',
+//         color: '#ccc',
+//         textAlign: 'justify',
+//       }}
+//       {...props}
+//     />
+//   ),
+//   a: ({ node, ...props }) => (
+//     <a target="_blank" rel="noopener noreferrer" {...props} />
+//   ),
+// };
+
+// // -------------------- FeedbackButtons Component --------------------
+// const FeedbackButtons = ({ messageId }) => {
+//     const [feedback, setFeedback] = useState(null);
+//     const [reportText, setReportText] = useState('');
+//     const [showReportPopup, setShowReportPopup] = useState(false);
+  
+//     const sendFeedback = async (action, reportMsg = '') => {
+//       try {
+//         await axios.put('/api/feedback', {
+//           messageId,
+//           action,
+//           reportMessage: reportMsg,
+//         });
+//         setFeedback(action);
+//       } catch (error) {
+//         console.error('Error updating feedback:', error);
+//       }
+//     };
+  
+//     const pulse = keyframes`
+//       0% { transform: scale(1); }
+//       50% { transform: scale(1.1); }
+//       100% { transform: scale(1); }
+//     `;
+  
+//     const IconWrapper = styled(IconButton, {
+//         shouldForwardProp: (prop) => prop !== 'active',
+//       })(({ theme, active }) => ({
+//         transition: 'all 0.2s ease-in-out',
+//         backgroundColor: active ? theme.palette.primary.main : 'transparent',
+//         color: active ? '#fff' : '#fff', // Adjust if needed
+//         borderRadius: '50%',
+//         '&:hover': {
+//           backgroundColor: active ? theme.palette.primary.dark : 'rgba(255,255,255,0.1)',
+//           transform: 'scale(1.1)',
+//         },
+//         '&:active': {
+//           animation: `${pulse} 0.3s ease`,
+//         },
+//       }));
+      
+
+//     return (
+//         <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+//           <IconWrapper
+//             onClick={() => sendFeedback('like')}
+//             size="small"
+//             active={feedback === 'like'}
+//           >
+//             <ThumbUpAltOutlined fontSize="small" />
+//           </IconWrapper>
+    
+//           <IconWrapper
+//             onClick={() => sendFeedback('dislike')}
+//             size="small"
+//             active={feedback === 'dislike'}
+//           >
+//             <ThumbDownAltOutlined fontSize="small" />
+//           </IconWrapper>
+    
+//           <IconWrapper
+//             onClick={() => setShowReportPopup(true)}
+//             size="small"
+//             active={feedback === 'report'}
+//           >
+//             <FlagOutlined fontSize="small" />
+//           </IconWrapper>
+    
+//           {showReportPopup && (
+//             <Box
+//               sx={{
+//                 position: 'fixed',
+//                 top: '50%',
+//                 left: '50%',
+//                 transform: 'translate(-50%, -50%)',
+//                 backgroundColor: '#1e1e1e',
+//                 p: 3,
+//                 zIndex: 1000,
+//                 borderRadius: 2,
+//                 boxShadow: '0px 4px 20px rgba(0,0,0,0.5)',
+//                 width: '90%',
+//                 maxWidth: '500px',
+//                 border: '1px solid #2196f3',
+//               }}
+//             >
+//               <Typography variant="subtitle1" sx={{ mb: 2, color: '#fff' }}>
+//                 Report Issue
+//               </Typography>
+//               <TextField
+//                 fullWidth
+//                 multiline
+//                 rows={4}
+//                 value={reportText}
+//                 onChange={(e) => setReportText(e.target.value)}
+//                 placeholder="Please describe the issue you encountered..."
+//                 sx={{
+//                   '& .MuiInputBase-root': {
+//                     color: '#fff',
+//                     backgroundColor: 'rgba(255,255,255,0.1)',
+//                     borderRadius: 1,
+//                     '&:hover fieldset': { borderColor: '#2196f3' },
+//                     '&.Mui-focused fieldset': { borderColor: '#2196f3' },
+//                   },
+//                 }}
+//               />
+//               <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+//                 <Button
+//                   variant="outlined"
+//                   onClick={() => setShowReportPopup(false)}
+//                   sx={{
+//                     color: '#fff',
+//                     borderColor: '#444',
+//                     '&:hover': { borderColor: '#2196f3' },
+//                   }}
+//                 >
+//                   Cancel
+//                 </Button>
+//                 <Button
+//                   variant="contained"
+//                   onClick={() => {
+//                     sendFeedback('report', reportText);
+//                     setShowReportPopup(false);
+//                   }}
+//                   sx={{
+//                     background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+//                     '&:hover': { opacity: 0.9 },
+//                   }}
+//                 >
+//                   Submit
+//                 </Button>
+//               </Box>
+//             </Box>
+//           )}
+//         </Box>
+//       );
+//     };
+// // -------------------- End FeedbackButtons --------------------
+
+// export default function Chat() {
+//   const [messages, setMessages] = useState([]);
+//   const [input, setInput] = useState('');
+//   const [loading, setLoading] = useState(false);
+//   const [chartType, setChartType] = useState('line');
+//   const messagesEndRef = useRef(null);
+
+//   const defaultQuestions = ['top 2 stocks', 'price of infosys stock'];
+
+//   useEffect(() => {
+//     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+//   }, [messages]);
+
+//   const sendMessage = async (messageContent) => {
+//     if (!messageContent.trim() || loading) return;
+//     setLoading(true);
+//     const userMessage = { role: 'user', content: messageContent };
+//     setMessages((prev) => [...prev, userMessage]);
+
+//     try {
+//       const { data } = await axios.post('/api/chat', {
+//         messages: [...messages, userMessage],
+//       });
+//       // The response from your chat API now includes a messageId field for assistant messages.
+//       const assistantMessage = data;
+
+//       // Process rawData for chartData if available.
+//       if (assistantMessage.rawData && assistantMessage.rawData.length > 0) {
+//         let chartData;
+//         let chartTitle = '';
+
+//         if (assistantMessage.rawData[0].history && assistantMessage.rawData[0].history.length > 0) {
+//           const labels = assistantMessage.rawData[0].history.map((item) =>
+//             new Date(item.date).toLocaleDateString()
+//           );
+//           const datasets = assistantMessage.rawData.map((asset, index) => ({
+//             label: asset.symbol || asset.name || `Asset ${index + 1}`,
+//             data: asset.history.map((item) => item.price),
+//             fill: false,
+//             borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//             backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//             tension: 0.1,
+//           }));
+//           chartData = { labels, datasets };
+//           chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
+//         } else if (assistantMessage.rawData[0].dates && assistantMessage.rawData[0].prices) {
+//           if (assistantMessage.rawData[0].prices.length > 1) {
+//             chartData = {
+//               labels: assistantMessage.rawData[0].dates,
+//               datasets: assistantMessage.rawData.map((item, index) => ({
+//                 label: item.symbol || 'Price',
+//                 data: item.prices,
+//                 fill: false,
+//                 borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//                 backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//                 tension: 0.1,
+//               })),
+//             };
+//             chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
+//           } else {
+//             chartData = {
+//               labels: assistantMessage.rawData.map((item, index) => item.symbol || `Asset ${index + 1}`),
+//               datasets: [
+//                 {
+//                   label: 'Current Price',
+//                   data: assistantMessage.rawData.map((item) => item.prices[0]),
+//                   backgroundColor: assistantMessage.rawData.map(
+//                     (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
+//                   ),
+//                   borderColor: assistantMessage.rawData.map(
+//                     (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
+//                   ),
+//                   borderWidth: 1,
+//                 },
+//               ],
+//             };
+//             chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Current Price`;
+//           }
+//         }
+//         assistantMessage.chartData = chartData;
+//         assistantMessage.chartTitle = chartTitle;
+//       }
+
+//       // Append the assistant message (which includes messageId) to messages.
+//       setMessages((prev) => [...prev, assistantMessage]);
+//     } catch (error) {
+//       console.error("Client-side error:", error);
+//       setMessages((prev) => [
+//         ...prev,
+//         { role: '⚠️', content: "I encountered an error. Please try again or ask about financial topics." },
+//       ]);
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   const handleSubmit = async (e) => {
+//     e.preventDefault();
+//     const messageToSend = input;
+//     setInput('');
+//     await sendMessage(messageToSend);
+//   };
+
+//   const handleExampleClick = (example) => {
+//     sendMessage(example);
+//   };
+
+//   const handleChartType = (event, newType) => {
+//     if (newType !== null) {
+//       setChartType(newType);
+//     }
+//   };
+
+//   return (
+//     <Box
+//       sx={{
+//         maxWidth: '800px',
+//         mx: 'auto',
+//         p: 2,
+//         height: '100vh',
+//         display: 'flex',
+//         flexDirection: 'column',
+//         backgroundColor: 'transparent',
+//         color: '#fff',
+//       }}
+//     >
+//       <Typography variant="h5" sx={{ mb: 3, fontWeight: 300, textAlign: 'center' }}>
+//         PROFIT FLOW
+//       </Typography>
+
+//       {messages.length === 0 && (
+//         <Box sx={{ mb: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
+//           {defaultQuestions.map((question, idx) => (
+//             <Button
+//               key={idx}
+//               variant="contained"
+//               onClick={() => handleExampleClick(question)}
+//               sx={{
+//                 borderRadius: '20px',
+//                 background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+//                 color: '#fff',
+//                 textTransform: 'none',
+//                 fontWeight: 600,
+//                 boxShadow: '0px 3px 5px -1px rgba(0,0,0,0.2)',
+//                 '&:hover': {
+//                   background: 'linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)',
+//                 },
+//               }}
+//             >
+//               {question}
+//             </Button>
+//           ))}
+//         </Box>
+//       )}
+
+//       <ChatContainer>
+//         <Box
+//           sx={{
+//             flex: 1,
+//             overflowY: 'auto',
+//             pb: 1,
+//             scrollbarWidth: 'none',
+//             '&::-webkit-scrollbar': { display: 'none' },
+//           }}
+//         >
+//           {messages.map((msg, i) =>
+//             msg.role === 'user' ? (
+//               <QuestionBox key={i}>
+//                 <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
+//               </QuestionBox>
+//             ) : (
+//               <AnswerText key={i}>
+//                 <ReactMarkdown components={markdownComponents}>
+//                   {msg.content || 'Fetching real-time data...'}
+//                 </ReactMarkdown>
+//                 {msg.chartData && (
+//                   <ChartContainerWrapper>
+//                     <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+//                       <ToggleButtonGroup
+//                         value={chartType}
+//                         exclusive
+//                         onChange={handleChartType}
+//                         size="small"
+//                         sx={{
+//                           '& .MuiToggleButton-root': {
+//                             color: '#fff',
+//                             borderColor: '#444',
+//                             backgroundColor: 'transparent',
+//                           },
+//                           '& .Mui-selected': {
+//                             backgroundColor: '#444 !important',
+//                             color: '#fff',
+//                           },
+//                         }}
+//                       >
+//                         <ToggleButton value="line">
+//                           Line
+//                         </ToggleButton>
+//                         <ToggleButton value="bar">
+//                           Bar
+//                         </ToggleButton>
+//                       </ToggleButtonGroup>
+//                     </Box>
+//                     <Box sx={{ width: '100%', height: '400px' }}>
+//                       <ChartDisplay
+//                         chartData={msg.chartData}
+//                         chartType={chartType}
+//                         chartTitle={msg.chartTitle}
+//                       />
+//                     </Box>
+//                   </ChartContainerWrapper>
+//                 )}
+//                 {/* Render feedback buttons if messageId exists */}
+//                 {msg.messageId && <FeedbackButtons messageId={msg.messageId} />}
+//               </AnswerText>
+//             )
+//           )}
+//           {loading && (
+//             <AnswerText>
+//               <Grid container spacing={1} alignItems="center">
+//                 <Grid item>
+//                   <CircularProgress size={20} sx={{ color: '#fff' }} />
+//                 </Grid>
+//               </Grid>
+//             </AnswerText>
+//           )}
+//           <div ref={messagesEndRef} />
+//         </Box>
+
+//         <Box
+//           component="form"
+//           onSubmit={handleSubmit}
+//           sx={{
+//             mt: 2,
+//             display: 'flex',
+//             gap: 1,
+//           }}
+//         >
+//           <TextField
+//             fullWidth
+//             variant="outlined"
+//             size="small"
+//             value={input}
+//             onChange={(e) => setInput(e.target.value)}
+//             placeholder="Ask for stock/crypto price"
+//             sx={{
+//               '& .MuiOutlinedInput-root': {
+//                 backgroundColor: '#1e1e1e',
+//                 borderRadius: '8px',
+//                 border: '1px solid #2196f3',
+//                 '& fieldset': { borderColor: '#2196f3' },
+//                 '&:hover fieldset': { borderColor: '#fff' },
+//                 '&.Mui-focused fieldset': { borderColor: '#fff' },
+//               },
+//               input: { color: '#fff' },
+//             }}
+//             InputProps={{
+//               endAdornment: (
+//                 <IconButton type="submit" color="primary" disabled={loading}>
+//                   <SendIcon />
+//                 </IconButton>
+//               ),
+//             }}
+//           />
+//         </Box>
+//       </ChatContainer>
+//     </Box>
+//   );
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//new code page.js
+
+
+// "use client";
+// import React, { useState, useRef, useEffect } from 'react';
+// import axios from 'axios';
+// import {
+//   Box,
+//   TextField,
+//   CircularProgress,
+//   Typography,
+//   IconButton,
+//   Grid,
+//   ToggleButton,
+//   ToggleButtonGroup,
+//   Button,
+//   Tooltip
+// } from '@mui/material';
+// import { 
+//   Send as SendIcon, 
+//   ThumbUpAltOutlined, 
+//   ThumbDownAltOutlined, 
+//   FlagOutlined, 
+//   ContentCopy,
+//   Check
+// } from '@mui/icons-material';
+// import ReactMarkdown from 'react-markdown';
+// import { styled, keyframes } from '@mui/material/styles';
+// import { Line, Bar } from 'react-chartjs-2';
+// import {
+//   Chart as ChartJS,
+//   CategoryScale,
+//   LinearScale,
+//   PointElement,
+//   LineElement,
+//   BarElement,
+//   Title,
+//   Tooltip as ChartTooltip,
+//   Legend,
+// } from 'chart.js';
+
+// ChartJS.register(
+//   CategoryScale,
+//   LinearScale,
+//   PointElement,
+//   LineElement,
+//   BarElement,
+//   Title,
+//   ChartTooltip,
+//   Legend
+// );
+
+// const fadeIn = keyframes`
+//   from { opacity: 0; transform: translateY(10px); }
+//   to { opacity: 1; transform: translateY(0); }
+// `;
+
+// const ChatContainer = styled(Box)(({ theme }) => ({
+//   height: '80vh',
+//   display: 'flex',
+//   flexDirection: 'column',
+//   backgroundColor: 'transparent',
+//   color: '#fff',
+//   borderRadius: theme.shape.borderRadius,
+//   padding: theme.spacing(2),
+//   overflow: 'hidden',
+// }));
+
+// const QuestionBox = styled(Box)(({ theme }) => ({
+//   alignSelf: 'flex-end',
+//   background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+//   color: '#fff',
+//   borderRadius: '20px 20px 20px 0',
+//   padding: theme.spacing(1.5),
+//   marginBottom: theme.spacing(1),
+//   display: 'inline-block',
+//   animation: `${fadeIn} 0.5s ease-out`,
+// }));
+
+// const AnswerText = styled(Box)(({ theme }) => ({
+//   alignSelf: 'flex-start',
+//   padding: theme.spacing(1.5),
+//   marginBottom: theme.spacing(2),
+//   maxWidth: '100%',
+//   lineHeight: 1.8,
+//   animation: `${fadeIn} 0.5s ease-out`,
+//   '& a': {
+//     color: '#2196f3 !important',
+//     textDecoration: 'underline',
+//     fontWeight: 500,
+//     transition: 'all 0.2s ease-in-out',
+//     '&:hover': {
+//       color: '#1976d2 !important',
+//       textDecoration: 'none !important',
+//     },
+//   },
+// }));
+
+// const ChartContainerWrapper = styled(Box)(({ theme }) => ({
+//   marginTop: theme.spacing(2),
+//   marginBottom: theme.spacing(2),
+// }));
+
+// const ChartDisplay = ({ chartData, chartType, chartTitle }) => {
+//   const adjustedData = JSON.parse(JSON.stringify(chartData));
+//   if (chartType === 'bar') {
+//     adjustedData.datasets.forEach((dataset) => {
+//       delete dataset.tension;
+//       dataset.fill = true;
+//     });
+//   }
+//   const commonOptions = {
+//     responsive: true,
+//     maintainAspectRatio: false,
+//     plugins: {
+//       legend: {
+//         position: 'top',
+//         labels: { color: '#fff' },
+//       },
+//       title: {
+//         display: true,
+//         text: chartTitle,
+//         color: '#fff',
+//         font: { size: 16 },
+//       },
+//     },
+//     scales: {
+//       x: {
+//         ticks: { color: '#fff' },
+//         grid: { color: 'rgba(255,255,255,0.2)' },
+//         title: {
+//           display: true,
+//           text:
+//             (chartData.labels &&
+//               chartData.labels[0] &&
+//               (chartData.labels[0].includes('-') || chartData.labels[0].includes('/')))
+//               ? 'Time'
+//               : 'Symbol',
+//           color: '#fff',
+//         },
+//       },
+//       y: {
+//         ticks: { color: '#fff' },
+//         grid: { color: 'rgba(255,255,255,0.2)' },
+//         title: { display: true, text: 'Price (USD)', color: '#fff' },
+//       },
+//     },
+//   };
+
+//   return chartType === 'line' ? (
+//     <Line data={chartData} options={commonOptions} />
+//   ) : (
+//     <Bar data={adjustedData} options={commonOptions} />
+//   );
+// };
+
+// const markdownComponents = {
+//   p: ({ node, ...props }) => (
+//     <p style={{ textAlign: 'justify', textIndent: '1em' }} {...props} />
+//   ),
+//   h1: ({ node, ...props }) => (
+//     <h1
+//       style={{
+//         margin: '1.2em 0 0.5em',
+//         paddingBottom: '0.3em',
+//         fontWeight: 'bold',
+//         textAlign: 'justify',
+//       }}
+//       {...props}
+//     />
+//   ),
+//   h2: ({ node, ...props }) => (
+//     <h2
+//       style={{
+//         margin: '1.2em 0 0.5em',
+//         paddingBottom: '0.3em',
+//         fontWeight: 'bold',
+//         textAlign: 'justify',
+//       }}
+//       {...props}
+//     />
+//   ),
+//   h3: ({ node, ...props }) => (
+//     <h3 style={{ margin: '1em 0 0.5em', fontWeight: 'bold', textAlign: 'justify' }} {...props} />
+//   ),
+//   li: ({ node, ordered, ...props }) => (
+//     <li style={{ marginBottom: '0.5em', marginLeft: '1em', textAlign: 'justify' }} {...props} />
+//   ),
+//   blockquote: ({ node, ...props }) => (
+//     <blockquote
+//       style={{
+//         borderLeft: '4px solid #4bd8d8',
+//         margin: '1em 0',
+//         paddingLeft: '1em',
+//         fontStyle: 'italic',
+//         color: '#ccc',
+//         textAlign: 'justify',
+//       }}
+//       {...props}
+//     />
+//   ),
+//   a: ({ node, ...props }) => (
+//     <a target="_blank" rel="noopener noreferrer" {...props} />
+//   ),
+// };
+
+// // -------------------- FeedbackButtons Component --------------------
+// const pulseAnim = keyframes`
+//   0% { transform: scale(1); }
+//   50% { transform: scale(1.1); }
+//   100% { transform: scale(1); }
+// `;
+
+// const IconWrapper = styled(IconButton, {
+//   shouldForwardProp: (prop) => prop !== 'active',
+// })(({ theme, active }) => ({
+//   transition: 'all 0.2s ease-in-out',
+//   backgroundColor: active ? theme.palette.primary.main : 'transparent',
+//   color: '#fff',
+//   borderRadius: '50%',
+//   '&:hover': {
+//     backgroundColor: active ? theme.palette.primary.dark : 'rgba(255,255,255,0.1)',
+//     transform: 'scale(1.1)',
+//   },
+//   '&:active': {
+//     animation: `${pulseAnim} 0.3s ease`,
+//   },
+// }));
+
+// const FeedbackButtons = ({ messageId, content }) => {
+//   const [feedback, setFeedback] = useState(null);
+//   const [copied, setCopied] = useState(false);
+
+//   const handleCopy = async () => {
+//     try {
+//       await navigator.clipboard.writeText(content);
+//       setCopied(true);
+//       // Reset the copy state after 2 seconds
+//       setTimeout(() => setCopied(false), 2000);
+//     } catch (err) {
+//       console.error('Failed to copy text: ', err);
+//     }
+//   };
+
+//   const handleFeedback = (action, reportMsg = '') => {
+//     // Here you can call your sendFeedback API if needed.
+//     setFeedback(action);
+//   };
+
+//   return (
+//     <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+//       <Tooltip title={copied ? "Copied!" : "Copy"}>
+//         <IconWrapper onClick={handleCopy} size="small" sx={{ display: 'inline-flex' }}>
+//           {copied ? <Check fontSize="small" /> : <ContentCopy fontSize="small" />}
+//         </IconWrapper>
+//       </Tooltip>
+//       <Tooltip title="Like">
+//         <IconWrapper
+//           onClick={() => handleFeedback('like')}
+//           size="small"
+//           active={feedback === 'like'}
+//           sx={{
+//             display: (feedback === 'dislike' || feedback === 'report') ? 'none' : 'inline-flex',
+//           }}
+//         >
+//           <ThumbUpAltOutlined fontSize="small" />
+//         </IconWrapper>
+//       </Tooltip>
+//       <Tooltip title="Dislike">
+//         <IconWrapper
+//           onClick={() => handleFeedback('dislike')}
+//           size="small"
+//           active={feedback === 'dislike'}
+//           sx={{ 
+//             display: (feedback === 'like' || feedback === 'report') ? 'none' : 'inline-flex',
+//           }}
+//         >
+//           <ThumbDownAltOutlined fontSize="small" />
+//         </IconWrapper>
+//       </Tooltip>
+//       <Tooltip title="Report">
+//         <IconWrapper
+//           onClick={() => handleFeedback('report')}
+//           size="small"
+//           active={feedback === 'report'}
+//           sx={{ 
+//             display: feedback === 'like' ? 'none' : 'inline-flex',
+//           }}
+//         >
+//           <FlagOutlined fontSize="small" />
+//         </IconWrapper>
+//       </Tooltip>
+//     </Box>
+//   );
+// };
+// // -------------------- End FeedbackButtons --------------------
+
+// export default function Chat() {
+//   const [messages, setMessages] = useState([]);
+//   const [input, setInput] = useState('');
+//   const [loading, setLoading] = useState(false);
+//   const [chartType, setChartType] = useState('line');
+//   const messagesEndRef = useRef(null);
+
+//   const defaultQuestions = ['top 2 stocks', 'price of infosys stock'];
+
+//   useEffect(() => {
+//     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+//   }, [messages]);
+
+//   const sendMessage = async (messageContent) => {
+//     if (!messageContent.trim() || loading) return;
+//     setLoading(true);
+//     const userMessage = { role: 'user', content: messageContent };
+//     setMessages((prev) => [...prev, userMessage]);
+
+//     try {
+//       const { data } = await axios.post('/api/chat', {
+//         messages: [...messages, userMessage],
+//       });
+//       const assistantMessage = data;
+
+//       if (assistantMessage.rawData && assistantMessage.rawData.length > 0) {
+//         let chartData;
+//         let chartTitle = '';
+
+//         if (assistantMessage.rawData[0].history && assistantMessage.rawData[0].history.length > 0) {
+//           const labels = assistantMessage.rawData[0].history.map((item) =>
+//             new Date(item.date).toLocaleDateString()
+//           );
+//           const datasets = assistantMessage.rawData.map((asset, index) => ({
+//             label: asset.symbol || asset.name || `Asset ${index + 1}`,
+//             data: asset.history.map((item) => item.price),
+//             fill: false,
+//             borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//             backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//             tension: 0.1,
+//           }));
+//           chartData = { labels, datasets };
+//           chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
+//         } else if (assistantMessage.rawData[0].dates && assistantMessage.rawData[0].prices) {
+//           if (assistantMessage.rawData[0].prices.length > 1) {
+//             chartData = {
+//               labels: assistantMessage.rawData[0].dates,
+//               datasets: assistantMessage.rawData.map((item, index) => ({
+//                 label: item.symbol || 'Price',
+//                 data: item.prices,
+//                 fill: false,
+//                 borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//                 backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//                 tension: 0.1,
+//               })),
+//             };
+//             chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
+//           } else {
+//             chartData = {
+//               labels: assistantMessage.rawData.map((item, index) => item.symbol || `Asset ${index + 1}`),
+//               datasets: [
+//                 {
+//                   label: 'Current Price',
+//                   data: assistantMessage.rawData.map((item) => item.prices[0]),
+//                   backgroundColor: assistantMessage.rawData.map(
+//                     (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
+//                   ),
+//                   borderColor: assistantMessage.rawData.map(
+//                     (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
+//                   ),
+//                   borderWidth: 1,
+//                 },
+//               ],
+//             };
+//             chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Current Price`;
+//           }
+//         }
+//         assistantMessage.chartData = chartData;
+//         assistantMessage.chartTitle = chartTitle;
+//       }
+
+//       setMessages((prev) => [...prev, assistantMessage]);
+//     } catch (error) {
+//       console.error("Client-side error:", error);
+//       setMessages((prev) => [
+//         ...prev,
+//         { role: '⚠️', content: "I encountered an error. Please try again or ask about financial topics." },
+//       ]);
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   const handleSubmit = async (e) => {
+//     e.preventDefault();
+//     const messageToSend = input;
+//     setInput('');
+//     await sendMessage(messageToSend);
+//   };
+
+//   const handleExampleClick = (example) => {
+//     sendMessage(example);
+//   };
+
+//   const handleChartType = (event, newType) => {
+//     if (newType !== null) {
+//       setChartType(newType);
+//     }
+//   };
+
+//   return (
+//     <Box
+//       sx={{
+//         maxWidth: '800px',
+//         mx: 'auto',
+//         p: 2,
+//         height: '100vh',
+//         display: 'flex',
+//         flexDirection: 'column',
+//         backgroundColor: 'transparent',
+//         color: '#fff',
+//       }}
+//     >
+//       <Typography variant="h5" sx={{ mb: 3, fontWeight: 300, textAlign: 'center' }}>
+//         PROFIT FLOW
+//       </Typography>
+
+//       {messages.length === 0 && (
+//         <Box sx={{ mb: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
+//           {defaultQuestions.map((question, idx) => (
+//             <Button
+//               key={idx}
+//               variant="contained"
+//               onClick={() => handleExampleClick(question)}
+//               sx={{
+//                 borderRadius: '20px',
+//                 background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+//                 color: '#fff',
+//                 textTransform: 'none',
+//                 fontWeight: 600,
+//                 boxShadow: '0px 3px 5px -1px rgba(0,0,0,0.2)',
+//                 '&:hover': {
+//                   background: 'linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)',
+//                 },
+//               }}
+//             >
+//               {question}
+//             </Button>
+//           ))}
+//         </Box>
+//       )}
+
+//       <ChatContainer>
+//         <Box
+//           sx={{
+//             flex: 1,
+//             overflowY: 'auto',
+//             pb: 1,
+//             scrollbarWidth: 'none',
+//             '&::-webkit-scrollbar': { display: 'none' },
+//           }}
+//         >
+//           {messages.map((msg, i) =>
+//             msg.role === 'user' ? (
+//               <QuestionBox key={i}>
+//                 <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
+//               </QuestionBox>
+//             ) : (
+//               <AnswerText key={i}>
+//                 <ReactMarkdown components={markdownComponents}>
+//                   {msg.content || 'Fetching real-time data...'}
+//                 </ReactMarkdown>
+//                 {msg.chartData && (
+//                   <ChartContainerWrapper>
+//                     <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+//                       <ToggleButtonGroup
+//                         value={chartType}
+//                         exclusive
+//                         onChange={handleChartType}
+//                         size="small"
+//                         sx={{
+//                           '& .MuiToggleButton-root': {
+//                             color: '#fff',
+//                             borderColor: '#444',
+//                             backgroundColor: 'transparent',
+//                           },
+//                           '& .Mui-selected': {
+//                             backgroundColor: '#444 !important',
+//                             color: '#fff',
+//                           },
+//                         }}
+//                       >
+//                         <ToggleButton value="line">Line</ToggleButton>
+//                         <ToggleButton value="bar">Bar</ToggleButton>
+//                       </ToggleButtonGroup>
+//                     </Box>
+//                     <Box sx={{ width: '100%', height: '400px' }}>
+//                       <ChartDisplay
+//                         chartData={msg.chartData}
+//                         chartType={chartType}
+//                         chartTitle={msg.chartTitle}
+//                       />
+//                     </Box>
+//                   </ChartContainerWrapper>
+//                 )}
+//                 {msg.messageId && (
+//                   <FeedbackButtons messageId={msg.messageId} content={msg.content} />
+//                 )}
+//               </AnswerText>
+//             )
+//           )}
+//           {loading && (
+//             <AnswerText>
+//               <Grid container spacing={1} alignItems="center">
+//                 <Grid item>
+//                   <CircularProgress size={20} sx={{ color: '#fff' }} />
+//                 </Grid>
+//               </Grid>
+//             </AnswerText>
+//           )}
+//           <div ref={messagesEndRef} />
+//         </Box>
+
+//         <Box
+//           component="form"
+//           onSubmit={handleSubmit}
+//           sx={{
+//             mt: 2,
+//             display: 'flex',
+//             gap: 1,
+//           }}
+//         >
+//           <TextField
+//             fullWidth
+//             variant="outlined"
+//             size="small"
+//             value={input}
+//             onChange={(e) => setInput(e.target.value)}
+//             placeholder="Ask for stock/crypto price"
+//             sx={{
+//               '& .MuiOutlinedInput-root': {
+//                 backgroundColor: '#1e1e1e',
+//                 borderRadius: '8px',
+//                 border: '1px solid #2196f3',
+//                 '& fieldset': { borderColor: '#2196f3' },
+//                 '&:hover fieldset': { borderColor: '#fff' },
+//                 '&.Mui-focused fieldset': { borderColor: '#fff' },
+//               },
+//               input: { color: '#fff' },
+//             }}
+//             InputProps={{
+//               endAdornment: (
+//                 <IconButton type="submit" color="primary" disabled={loading}>
+//                   <SendIcon />
+//                 </IconButton>
+//               ),
+//             }}
+//           />
+//         </Box>
+//       </ChatContainer>
+//     </Box>
+//   );
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//code with copy button and all
+
+
+// "use client";
+// import React, { useState, useRef, useEffect } from 'react';
+// import axios from 'axios';
+// import {
+//   Box,
+//   TextField,
+//   CircularProgress,
+//   Typography,
+//   IconButton,
+//   Grid,
+//   ToggleButton,
+//   ToggleButtonGroup,
+//   Button,
+//   Tooltip
+// } from '@mui/material';
+// import { 
+//   Send as SendIcon, 
+//   ThumbUpAltOutlined, 
+//   ThumbDownAltOutlined, 
+//   FlagOutlined, 
+//   ContentCopy,
+//   Check
+// } from '@mui/icons-material';
+// import ReactMarkdown from 'react-markdown';
+// import { styled, keyframes } from '@mui/material/styles';
+// import { Line, Bar } from 'react-chartjs-2';
+// import {
+//   Chart as ChartJS,
+//   CategoryScale,
+//   LinearScale,
+//   PointElement,
+//   LineElement,
+//   BarElement,
+//   Title,
+//   Tooltip as ChartTooltip,
+//   Legend,
+// } from 'chart.js';
+
+// ChartJS.register(
+//   CategoryScale,
+//   LinearScale,
+//   PointElement,
+//   LineElement,
+//   BarElement,
+//   Title,
+//   ChartTooltip,
+//   Legend
+// );
+
+// const fadeIn = keyframes`
+//   from { opacity: 0; transform: translateY(10px); }
+//   to { opacity: 1; transform: translateY(0); }
+// `;
+
+// const ChatContainer = styled(Box)(({ theme }) => ({
+//   height: '80vh',
+//   display: 'flex',
+//   flexDirection: 'column',
+//   backgroundColor: 'transparent',
+//   color: '#fff',
+//   borderRadius: theme.shape.borderRadius,
+//   padding: theme.spacing(2),
+//   overflow: 'hidden',
+// }));
+
+// const QuestionBox = styled(Box)(({ theme }) => ({
+//   alignSelf: 'flex-end',
+//   background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+//   color: '#fff',
+//   borderRadius: '20px 20px 20px 0',
+//   padding: theme.spacing(1.5),
+//   marginBottom: theme.spacing(1),
+//   display: 'inline-block',
+//   animation: `${fadeIn} 0.5s ease-out`,
+// }));
+
+// const AnswerText = styled(Box)(({ theme }) => ({
+//   alignSelf: 'flex-start',
+//   padding: theme.spacing(1.5),
+//   marginBottom: theme.spacing(2),
+//   maxWidth: '100%',
+//   lineHeight: 1.8,
+//   animation: `${fadeIn} 0.5s ease-out`,
+//   '& a': {
+//     color: '#2196f3 !important',
+//     textDecoration: 'underline',
+//     fontWeight: 500,
+//     transition: 'all 0.2s ease-in-out',
+//     '&:hover': {
+//       color: '#1976d2 !important',
+//       textDecoration: 'none !important',
+//     },
+//   },
+// }));
+
+// const ChartContainerWrapper = styled(Box)(({ theme }) => ({
+//   marginTop: theme.spacing(2),
+//   marginBottom: theme.spacing(2),
+// }));
+
+// const ChartDisplay = ({ chartData, chartType, chartTitle }) => {
+//   const adjustedData = JSON.parse(JSON.stringify(chartData));
+//   if (chartType === 'bar') {
+//     adjustedData.datasets.forEach((dataset) => {
+//       delete dataset.tension;
+//       dataset.fill = true;
+//     });
+//   }
+//   const commonOptions = {
+//     responsive: true,
+//     maintainAspectRatio: false,
+//     plugins: {
+//       legend: {
+//         position: 'top',
+//         labels: { color: '#fff' },
+//       },
+//       title: {
+//         display: true,
+//         text: chartTitle,
+//         color: '#fff',
+//         font: { size: 16 },
+//       },
+//     },
+//     scales: {
+//       x: {
+//         ticks: { color: '#fff' },
+//         grid: { color: 'rgba(255,255,255,0.2)' },
+//         title: {
+//           display: true,
+//           text:
+//             (chartData.labels &&
+//               chartData.labels[0] &&
+//               (chartData.labels[0].includes('-') || chartData.labels[0].includes('/')))
+//               ? 'Time'
+//               : 'Symbol',
+//           color: '#fff',
+//         },
+//       },
+//       y: {
+//         ticks: { color: '#fff' },
+//         grid: { color: 'rgba(255,255,255,0.2)' },
+//         title: { display: true, text: 'Price (USD)', color: '#fff' },
+//       },
+//     },
+//   };
+
+//   return chartType === 'line' ? (
+//     <Line data={chartData} options={commonOptions} />
+//   ) : (
+//     <Bar data={adjustedData} options={commonOptions} />
+//   );
+// };
+
+// const markdownComponents = {
+//   p: ({ node, ...props }) => (
+//     <p style={{ textAlign: 'justify', textIndent: '1em' }} {...props} />
+//   ),
+//   h1: ({ node, ...props }) => (
+//     <h1
+//       style={{
+//         margin: '1.2em 0 0.5em',
+//         paddingBottom: '0.3em',
+//         fontWeight: 'bold',
+//         textAlign: 'justify',
+//       }}
+//       {...props}
+//     />
+//   ),
+//   h2: ({ node, ...props }) => (
+//     <h2
+//       style={{
+//         margin: '1.2em 0 0.5em',
+//         paddingBottom: '0.3em',
+//         fontWeight: 'bold',
+//         textAlign: 'justify',
+//       }}
+//       {...props}
+//     />
+//   ),
+//   h3: ({ node, ...props }) => (
+//     <h3 style={{ margin: '1em 0 0.5em', fontWeight: 'bold', textAlign: 'justify' }} {...props} />
+//   ),
+//   li: ({ node, ordered, ...props }) => (
+//     <li style={{ marginBottom: '0.5em', marginLeft: '1em', textAlign: 'justify' }} {...props} />
+//   ),
+//   blockquote: ({ node, ...props }) => (
+//     <blockquote
+//       style={{
+//         borderLeft: '4px solid #4bd8d8',
+//         margin: '1em 0',
+//         paddingLeft: '1em',
+//         fontStyle: 'italic',
+//         color: '#ccc',
+//         textAlign: 'justify',
+//       }}
+//       {...props}
+//     />
+//   ),
+//   a: ({ node, ...props }) => (
+//     <a target="_blank" rel="noopener noreferrer" {...props} />
+//   ),
+// };
+
+// // -------------------- FeedbackButtons Component --------------------
+// const pulseAnim = keyframes`
+//   0% { transform: scale(1); }
+//   50% { transform: scale(1.1); }
+//   100% { transform: scale(1); }
+// `;
+
+// const IconWrapper = styled(IconButton, {
+//   shouldForwardProp: (prop) => prop !== 'active',
+// })(({ theme, active }) => ({
+//   transition: 'all 0.2s ease-in-out',
+//   backgroundColor: active ? theme.palette.primary.main : 'transparent',
+//   color: '#fff',
+//   borderRadius: '50%',
+//   '&:hover': {
+//     backgroundColor: active ? theme.palette.primary.dark : 'rgba(255,255,255,0.1)',
+//     transform: 'scale(1.1)',
+//   },
+//   '&:active': {
+//     animation: `${pulseAnim} 0.3s ease`,
+//   },
+// }));
+
+// const FeedbackButtons = ({ messageId, content }) => {
+//   const [feedback, setFeedback] = useState(null);
+//   const [copied, setCopied] = useState(false);
+
+//   const handleCopy = async () => {
+//     try {
+//       await navigator.clipboard.writeText(content);
+//       setCopied(true);
+//       // Reset the copy state after 2 seconds
+//       setTimeout(() => setCopied(false), 2000);
+//     } catch (err) {
+//       console.error('Failed to copy text: ', err);
+//     }
+//   };
+
+//   const handleFeedback = (action, reportMsg = '') => {
+//     // Here you can call your sendFeedback API if needed.
+//     setFeedback(action);
+//   };
+
+//   return (
+//     <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+//       <Tooltip title={copied ? "Copied!" : "Copy"}>
+//         <IconWrapper onClick={handleCopy} size="small" sx={{ display: 'inline-flex' }}>
+//           {copied ? <Check fontSize="small" /> : <ContentCopy fontSize="small" />}
+//         </IconWrapper>
+//       </Tooltip>
+//       <Tooltip title="Like">
+//         <IconWrapper
+//           onClick={() => handleFeedback('like')}
+//           size="small"
+//           active={feedback === 'like'}
+//           sx={{
+//             display: (feedback === 'dislike' || feedback === 'report') ? 'none' : 'inline-flex',
+//           }}
+//         >
+//           <ThumbUpAltOutlined fontSize="small" />
+//         </IconWrapper>
+//       </Tooltip>
+//       <Tooltip title="Dislike">
+//         <IconWrapper
+//           onClick={() => handleFeedback('dislike')}
+//           size="small"
+//           active={feedback === 'dislike'}
+//           sx={{ 
+//             display: (feedback === 'like' || feedback === 'report') ? 'none' : 'inline-flex',
+//           }}
+//         >
+//           <ThumbDownAltOutlined fontSize="small" />
+//         </IconWrapper>
+//       </Tooltip>
+//       <Tooltip title="Report">
+//         <IconWrapper
+//           onClick={() => handleFeedback('report')}
+//           size="small"
+//           active={feedback === 'report'}
+//           sx={{ 
+//             display: feedback === 'like' ? 'none' : 'inline-flex',
+//           }}
+//         >
+//           <FlagOutlined fontSize="small" />
+//         </IconWrapper>
+//       </Tooltip>
+//     </Box>
+//   );
+// };
+// // -------------------- End FeedbackButtons --------------------
+
+// export default function Chat() {
+//   const [messages, setMessages] = useState([]);
+//   const [input, setInput] = useState('');
+//   const [loading, setLoading] = useState(false);
+//   const [chartType, setChartType] = useState('line');
+//   const messagesEndRef = useRef(null);
+
+//   const defaultQuestions = ['top 2 stocks', 'price of infosys stock'];
+
+//   useEffect(() => {
+//     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+//   }, [messages]);
+
+//   const sendMessage = async (messageContent) => {
+//     if (!messageContent.trim() || loading) return;
+//     setLoading(true);
+//     const userMessage = { role: 'user', content: messageContent };
+//     setMessages((prev) => [...prev, userMessage]);
+
+//     try {
+//       const { data } = await axios.post('/api/chat', {
+//         messages: [...messages, userMessage],
+//       });
+//       const assistantMessage = data;
+
+//       if (assistantMessage.rawData && assistantMessage.rawData.length > 0) {
+//         let chartData;
+//         let chartTitle = '';
+
+//         if (assistantMessage.rawData[0].history && assistantMessage.rawData[0].history.length > 0) {
+//           const labels = assistantMessage.rawData[0].history.map((item) =>
+//             new Date(item.date).toLocaleDateString()
+//           );
+//           const datasets = assistantMessage.rawData.map((asset, index) => ({
+//             label: asset.symbol || asset.name || `Asset ${index + 1}`,
+//             data: asset.history.map((item) => item.price),
+//             fill: false,
+//             borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//             backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//             tension: 0.1,
+//           }));
+//           chartData = { labels, datasets };
+//           chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
+//         } else if (assistantMessage.rawData[0].dates && assistantMessage.rawData[0].prices) {
+//           if (assistantMessage.rawData[0].prices.length > 1) {
+//             chartData = {
+//               labels: assistantMessage.rawData[0].dates,
+//               datasets: assistantMessage.rawData.map((item, index) => ({
+//                 label: item.symbol || 'Price',
+//                 data: item.prices,
+//                 fill: false,
+//                 borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//                 backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+//                 tension: 0.1,
+//               })),
+//             };
+//             chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
+//           } else {
+//             chartData = {
+//               labels: assistantMessage.rawData.map((item, index) => item.symbol || `Asset ${index + 1}`),
+//               datasets: [
+//                 {
+//                   label: 'Current Price',
+//                   data: assistantMessage.rawData.map((item) => item.prices[0]),
+//                   backgroundColor: assistantMessage.rawData.map(
+//                     (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
+//                   ),
+//                   borderColor: assistantMessage.rawData.map(
+//                     (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
+//                   ),
+//                   borderWidth: 1,
+//                 },
+//               ],
+//             };
+//             chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Current Price`;
+//           }
+//         }
+//         assistantMessage.chartData = chartData;
+//         assistantMessage.chartTitle = chartTitle;
+//       }
+
+//       setMessages((prev) => [...prev, assistantMessage]);
+//     } catch (error) {
+//       console.error("Client-side error:", error);
+//       setMessages((prev) => [
+//         ...prev,
+//         { role: '⚠️', content: "I encountered an error. Please try again or ask about financial topics." },
+//       ]);
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   const handleSubmit = async (e) => {
+//     e.preventDefault();
+//     const messageToSend = input;
+//     setInput('');
+//     await sendMessage(messageToSend);
+//   };
+
+//   const handleExampleClick = (example) => {
+//     sendMessage(example);
+//   };
+
+//   const handleChartType = (event, newType) => {
+//     if (newType !== null) {
+//       setChartType(newType);
+//     }
+//   };
+
+//   return (
+//     <Box
+//       sx={{
+//         maxWidth: '800px',
+//         mx: 'auto',
+//         p: 2,
+//         height: '100vh',
+//         display: 'flex',
+//         flexDirection: 'column',
+//         backgroundColor: 'transparent',
+//         color: '#fff',
+//       }}
+//     >
+//       <Typography variant="h5" sx={{ mb: 3, fontWeight: 300, textAlign: 'center' }}>
+//         PROFIT FLOW
+//       </Typography>
+
+//       {messages.length === 0 && (
+//         <Box sx={{ mb: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
+//           {defaultQuestions.map((question, idx) => (
+//             <Button
+//               key={idx}
+//               variant="contained"
+//               onClick={() => handleExampleClick(question)}
+//               sx={{
+//                 borderRadius: '20px',
+//                 background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+//                 color: '#fff',
+//                 textTransform: 'none',
+//                 fontWeight: 600,
+//                 boxShadow: '0px 3px 5px -1px rgba(0,0,0,0.2)',
+//                 '&:hover': {
+//                   background: 'linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)',
+//                 },
+//               }}
+//             >
+//               {question}
+//             </Button>
+//           ))}
+//         </Box>
+//       )}
+
+//       <ChatContainer>
+//         <Box
+//           sx={{
+//             flex: 1,
+//             overflowY: 'auto',
+//             pb: 1,
+//             scrollbarWidth: 'none',
+//             '&::-webkit-scrollbar': { display: 'none' },
+//           }}
+//         >
+//           {messages.map((msg, i) =>
+//             msg.role === 'user' ? (
+//               <QuestionBox key={i}>
+//                 <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
+//               </QuestionBox>
+//             ) : (
+//               <AnswerText key={i}>
+//                 <ReactMarkdown components={markdownComponents}>
+//                   {msg.content || 'Fetching real-time data...'}
+//                 </ReactMarkdown>
+//                 {msg.chartData && (
+//                   <ChartContainerWrapper>
+//                     <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+//                       <ToggleButtonGroup
+//                         value={chartType}
+//                         exclusive
+//                         onChange={handleChartType}
+//                         size="small"
+//                         sx={{
+//                           '& .MuiToggleButton-root': {
+//                             color: '#fff',
+//                             borderColor: '#444',
+//                             backgroundColor: 'transparent',
+//                           },
+//                           '& .Mui-selected': {
+//                             backgroundColor: '#444 !important',
+//                             color: '#fff',
+//                           },
+//                         }}
+//                       >
+//                         <ToggleButton value="line">Line</ToggleButton>
+//                         <ToggleButton value="bar">Bar</ToggleButton>
+//                       </ToggleButtonGroup>
+//                     </Box>
+//                     <Box sx={{ width: '100%', height: '400px' }}>
+//                       <ChartDisplay
+//                         chartData={msg.chartData}
+//                         chartType={chartType}
+//                         chartTitle={msg.chartTitle}
+//                       />
+//                     </Box>
+//                   </ChartContainerWrapper>
+//                 )}
+//                 {msg.messageId && (
+//                   <FeedbackButtons messageId={msg.messageId} content={msg.content} />
+//                 )}
+//               </AnswerText>
+//             )
+//           )}
+//           {loading && (
+//             <AnswerText>
+//               <Grid container spacing={1} alignItems="center">
+//                 <Grid item>
+//                   <CircularProgress size={20} sx={{ color: '#fff' }} />
+//                 </Grid>
+//               </Grid>
+//             </AnswerText>
+//           )}
+//           <div ref={messagesEndRef} />
+//         </Box>
+
+//         <Box
+//           component="form"
+//           onSubmit={handleSubmit}
+//           sx={{
+//             mt: 2,
+//             display: 'flex',
+//             gap: 1,
+//           }}
+//         >
+//           <TextField
+//             fullWidth
+//             variant="outlined"
+//             size="small"
+//             value={input}
+//             onChange={(e) => setInput(e.target.value)}
+//             placeholder="Ask for stock/crypto price"
+//             sx={{
+//               '& .MuiOutlinedInput-root': {
+//                 backgroundColor: '#1e1e1e',
+//                 borderRadius: '8px',
+//                 border: '1px solid #2196f3',
+//                 '& fieldset': { borderColor: '#2196f3' },
+//                 '&:hover fieldset': { borderColor: '#fff' },
+//                 '&.Mui-focused fieldset': { borderColor: '#fff' },
+//               },
+//               input: { color: '#fff' },
+//             }}
+//             InputProps={{
+//               endAdornment: (
+//                 <IconButton type="submit" color="primary" disabled={loading}>
+//                   <SendIcon />
+//                 </IconButton>
+//               ),
+//             }}
+//           />
+//         </Box>
+//       </ChatContainer>
+//     </Box>
+//   );
+// }
