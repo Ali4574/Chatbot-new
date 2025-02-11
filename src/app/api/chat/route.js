@@ -6,8 +6,10 @@ import mongoose from 'mongoose';
 import CompanyInfo from '@/src/models/CompanyInfo';
 import dotenv from 'dotenv';
 import yahooFinance from 'yahoo-finance2';
+import UserChatLog from '@/src/models/UserChatLog';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
+import { NSELive, NSEArchive } from 'nse-api-package'; // New: Import NSELive and NSEArchive
 
 dotenv.config({ path: '.env.local' });
 
@@ -26,6 +28,9 @@ if (!mongoose.connection.readyState) {
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Initialize NSELive instance for realtime market status and additional endpoints
+const nseLive = new NSELive();
+
 const functions = [
   {
     name: 'get_stock_price',
@@ -37,13 +42,11 @@ const functions = [
         symbols: {
           type: 'array',
           items: { type: 'string' },
-          description:
-            'Array of stock symbols like ["RELIANCE", "TCS"] for Reliance and TCS.',
+          description: 'Array of stock symbols like ["RELIANCE", "TCS"] for Reliance and TCS.',
         },
         underPrice: {
           type: 'number',
-          description:
-            'Optional: filter stocks with current price under this value (in INR).',
+          description: 'Optional: filter stocks with current price under this value (in INR).',
         },
       },
       required: ['symbols'],
@@ -65,8 +68,7 @@ const functions = [
         currency: {
           type: 'string',
           enum: ['USD', 'INR'],
-          description:
-            'Currency for the price. Default is USD. For INR conversion, use "INR".',
+          description: 'Currency for the price. Default is USD. For INR conversion, use "INR".',
         },
         underPrice: {
           type: 'number',
@@ -90,8 +92,7 @@ const functions = [
         },
         underPrice: {
           type: 'number',
-          description:
-            'Optional: filter stocks with price under this value (in INR).',
+          description: 'Optional: filter stocks with price under this value (in INR).',
         },
       },
     },
@@ -110,13 +111,11 @@ const functions = [
         currency: {
           type: 'string',
           enum: ['USD', 'INR'],
-          description:
-            'Currency for the price. Default is USD. For INR conversion, use "INR".',
+          description: 'Currency for the price. Default is USD. For INR conversion, use "INR".',
         },
         underPrice: {
           type: 'number',
-          description:
-            'Optional: filter cryptos with current price under this value (in the specified currency).',
+          description: 'Optional: filter cryptos with current price under this value (in the specified currency).',
         },
       },
     },
@@ -129,65 +128,147 @@ const functions = [
       properties: {
         category: {
           type: 'string',
-          enum: [
-            'all',
-            'features',
-            'pricing',
-            'benefits',
-            'support',
-            'faq',
-            'subscription',
-          ],
+          enum: ['all', 'features', 'pricing', 'benefits', 'support', 'faq', 'subscription'],
           description: 'Category of information requested',
         },
       },
     },
   },
   {
-    name: 'get_market_update',
-    description:
-      'Get a comprehensive update of the Indian stock market that includes trending NSE stocks and current market news.',
+    name: 'get_market_status',
+    description: 'Get realtime Indian market status using NSELive data.',
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  // New functions from NSELive API:
+  {
+    name: 'get_trade_info',
+    description: 'Get detailed trade information for a specific equity using NSELive.',
     parameters: {
       type: 'object',
       properties: {
-        limit: {
-          type: 'number',
-          description: 'Number of top stocks to fetch (default is 5).',
-        },
-        underPrice: {
-          type: 'number',
-          description:
-            'Optional: filter stocks with price under this value (in INR).',
+        symbol: {
+          type: 'string',
+          description: 'Stock symbol for which to fetch trade information.',
         },
       },
+      required: ['symbol'],
     },
   },
   {
-    name: 'get_crypto_market_update',
-    description:
-      'Get a comprehensive update of the cryptocurrency market that includes trending cryptocurrencies and current crypto market news.',
+    name: 'get_stock_quote_fno',
+    description: 'Fetch live F&O data for a specific equity using NSELive.',
     parameters: {
       type: 'object',
       properties: {
-        limit: {
-          type: 'number',
-          description: 'Number of top cryptocurrencies to fetch (default is 5).',
-        },
-        currency: {
+        symbol: {
           type: 'string',
-          enum: ['USD', 'INR'],
-          description:
-            'Currency for the price. Default is USD. For INR conversion, use "INR".',
-        },
-        underPrice: {
-          type: 'number',
-          description:
-            'Optional: filter cryptocurrencies with current price under this value (in the specified currency).',
+          description: 'Stock symbol for which to fetch F&O data.',
         },
       },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_chart_data',
+    description: 'Fetch chart data for a given symbol using NSELive.',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Stock or index symbol for chart data.',
+        },
+        includeAdditionalData: {
+          type: 'boolean',
+          description: 'Optional flag to include additional chart details.',
+        },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_market_turnover',
+    description: 'Fetch market turnover data for a given symbol using NSELive.',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Stock symbol for which to fetch market turnover data.',
+        },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_equity_derivative_turnover',
+    description: 'Fetch equity derivative turnover data for a given symbol using NSELive.',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Stock symbol for which to fetch equity derivative turnover data.',
+        },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_all_indices',
+    description: 'Fetch data of all indices using NSELive.',
+    parameters: {
+      type: 'object',
+      properties: {}
+    },
+  },
+  {
+    name: 'get_live_index',
+    description: 'Fetch realtime index data for a given symbol using NSELive.',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Index symbol for which to fetch realtime data.',
+        },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_index_option_chain',
+    description: 'Fetch the index option chain for a given symbol using NSELive.',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Index symbol for which to fetch option chain data.',
+        },
+      },
+      required: ['symbol'],
     },
   },
 ];
+
+
+function calculateSMA(data, windowSize) {
+  const sma = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < windowSize - 1) {
+      sma.push(null);
+    } else {
+      const windowSlice = data.slice(i - windowSize + 1, i + 1);
+      const sum = windowSlice.reduce((acc, val) => acc + val, 0);
+      sma.push(sum / windowSize);
+    }
+  }
+  return sma;
+}
 
 /**
  * Helper: Fetch realtime data for a ticker.
@@ -213,6 +294,7 @@ async function fetchHistoricalData(ticker, period1, period2, interval = '1d') {
     return historical.map(item => ({
       date: item.date,
       price: item.close,
+      volume: item.volume, // Add volume data
     }));
   } catch (error) {
     console.error(`Error fetching historical data for ${ticker}:`, error);
@@ -237,44 +319,18 @@ async function fetchDetailedInfo(ticker) {
 
 /**
  * Helper: Fetch recent news for a ticker.
+ * (Retained for stock and crypto functions as needed)
  */
 async function fetchNews(ticker) {
   try {
     const searchResult = await yahooFinance.search(`${ticker} news`, { lang: 'en-IN', region: 'IN' });
     let news = searchResult.news || [];
     if (!news.length) {
-      console.warn(`No news found for ${ticker}, fetching general market news.`);
-      news = await fetchMarketNews();
+      console.warn(`No news found for ${ticker}.`);
     }
     return news;
   } catch (error) {
     console.error(`Error fetching news for ${ticker}:`, error);
-    return [];
-  }
-}
-
-/**
- * New Helper: Fetch general market news.
- */
-async function fetchMarketNews() {
-  try {
-    const searchResult = await yahooFinance.search("Indian stock market", { lang: 'en-IN', region: 'IN' });
-    return searchResult.news || [];
-  } catch (error) {
-    console.error("Error fetching market news:", error);
-    return [];
-  }
-}
-
-/**
- * New Helper: Fetch crypto market news.
- */
-async function fetchCryptoMarketNews() {
-  try {
-    const searchResult = await yahooFinance.search("cryptocurrency market news", { lang: 'en-IN', region: 'IN' });
-    return searchResult.news || [];
-  } catch (error) {
-    console.error("Error fetching crypto market news:", error);
     return [];
   }
 }
@@ -285,7 +341,7 @@ async function fetchCryptoMarketNews() {
 async function getStockPrice(symbols, underPrice) {
   const results = [];
   const now = new Date();
-  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const past7Days = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
 
   for (let symbol of symbols) {
     try {
@@ -326,13 +382,11 @@ async function getStockPrice(symbols, underPrice) {
   return results;
 }
 
-/**
- * Fetch trending (top) Indian stocks in real time.
- */
+// Fetch trending (top) stocks.
 async function getTopStocks(limit = 5, underPrice) {
   let results = [];
   const now = new Date();
-  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const past7Days = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
 
   try {
     const cookieResponse = await axios.get('https://www.nseindia.com', {
@@ -398,9 +452,7 @@ async function getTopStocks(limit = 5, underPrice) {
   return results;
 }
 
-/**
- * Fetch real-time cryptocurrency data.
- */
+// Fetch real-time crypto data.
 async function getCryptoPrice(symbols, currency = 'USD', underPrice) {
   let conversionRate = 1;
   if (currency === 'INR') {
@@ -413,7 +465,7 @@ async function getCryptoPrice(symbols, currency = 'USD', underPrice) {
   }
   const results = [];
   const now = new Date();
-  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const past7Days = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
   for (let symbol of symbols) {
     try {
       if (!symbol.includes('-')) {
@@ -448,7 +500,7 @@ async function getCryptoPrice(symbols, currency = 'USD', underPrice) {
         changePercentage: quote.regularMarketChangePercent,
         marketCap: quote.marketCap,
         detailedInfo,
-        news,
+        news
       });
     } catch (error) {
       console.error(`Error fetching crypto price for ${symbol}:`, error);
@@ -462,9 +514,6 @@ async function getCryptoPrice(symbols, currency = 'USD', underPrice) {
   return results;
 }
 
-/**
- * Fetch trending (top) cryptocurrencies in real time.
- */
 async function getTopCryptos(limit = 5, currency = 'USD', underPrice) {
   let conversionRate = 1;
   if (currency === 'INR') {
@@ -485,7 +534,7 @@ async function getTopCryptos(limit = 5, currency = 'USD', underPrice) {
     }
     let results = [];
     const now = new Date();
-    const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const past7Days = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
     for (const coin of coins) {
       const symbol = `${coin.symbol.toUpperCase()}-USD`;
       try {
@@ -523,27 +572,120 @@ async function getTopCryptos(limit = 5, currency = 'USD', underPrice) {
 }
 
 /**
- * New Function: Fetch crypto market update.
+ * New Function: Fetch realtime market status using NSELive.
  */
-async function getCryptoMarketUpdate(limit = 2, currency = 'USD', underPrice) {
-  const topCryptos = await getTopCryptos(limit, currency, underPrice);
-  const cryptoNews = await fetchCryptoMarketNews();
-  return {
-    topCryptos,
-    newsHighlights: cryptoNews.slice(0, 5)
-  };
+async function getMarketStatus() {
+  try {
+    const status = await nseLive.marketStatus();
+    return status;
+  } catch (error) {
+    console.error("Error fetching realtime market status:", error);
+    return { error: "Unable to fetch realtime market status" };
+  }
 }
 
 /**
- * New Function: Fetch market update.
+ * New Function: Fetch trade information for a specific equity using NSELive.
  */
-async function getMarketUpdate(limit = 2, underPrice) {
-  const topStocks = await getTopStocks(limit, underPrice);
-  const marketNews = await fetchMarketNews();
-  return {
-    topStocks,
-    newsHighlights: marketNews.slice(0, 5)
-  };
+async function getTradeInfo({ symbol }) {
+  try {
+    const info = await nseLive.tradeInfo(symbol);
+    return info;
+  } catch (error) {
+    console.error(`Error fetching trade info for ${symbol}:`, error);
+    return { error: "Unable to fetch trade info" };
+  }
+}
+
+/**
+ * New Function: Fetch live F&O data for a specific equity using NSELive.
+ */
+async function getStockQuoteFNO({ symbol }) {
+  try {
+    const data = await nseLive.stockQuoteFNO(symbol);
+    return data;
+  } catch (error) {
+    console.error(`Error fetching F&O data for ${symbol}:`, error);
+    return { error: "Unable to fetch F&O data" };
+  }
+}
+
+/**
+ * New Function: Fetch chart data for a given symbol using NSELive.
+ */
+async function getChartData({ symbol, includeAdditionalData }) {
+  try {
+    const data = await nseLive.chartData(symbol, includeAdditionalData);
+    return data;
+  } catch (error) {
+    console.error(`Error fetching chart data for ${symbol}:`, error);
+    return { error: "Unable to fetch chart data" };
+  }
+}
+
+/**
+ * New Function: Fetch market turnover data for a given symbol using NSELive.
+ */
+async function getMarketTurnover({ symbol }) {
+  try {
+    const data = await nseLive.marketTurnover(symbol);
+    return data;
+  } catch (error) {
+    console.error(`Error fetching market turnover for ${symbol}:`, error);
+    return { error: "Unable to fetch market turnover" };
+  }
+}
+
+/**
+ * New Function: Fetch equity derivative turnover data for a given symbol using NSELive.
+ */
+async function getEquityDerivativeTurnover({ symbol }) {
+  try {
+    const data = await nseLive.equityDerivativeTurnover(symbol);
+    return data;
+  } catch (error) {
+    console.error(`Error fetching equity derivative turnover for ${symbol}:`, error);
+    return { error: "Unable to fetch equity derivative turnover" };
+  }
+}
+
+/**
+ * New Function: Fetch data of all indices using NSELive.
+ */
+async function getAllIndices() {
+  try {
+    const data = await nseLive.allIndices();
+    return data;
+  } catch (error) {
+    console.error("Error fetching all indices:", error);
+    return { error: "Unable to fetch all indices" };
+  }
+}
+
+/**
+ * New Function: Fetch live index data for a given symbol using NSELive.
+ */
+async function getLiveIndex({ symbol }) {
+  try {
+    const data = await nseLive.liveIndex(symbol);
+    return data;
+  } catch (error) {
+    console.error(`Error fetching live index for ${symbol}:`, error);
+    return { error: "Unable to fetch live index" };
+  }
+}
+
+/**
+ * New Function: Fetch index option chain for a given symbol using NSELive.
+ */
+async function getIndexOptionChain({ symbol }) {
+  try {
+    const data = await nseLive.indexOptionChain(symbol);
+    return data;
+  } catch (error) {
+    console.error(`Error fetching index option chain for ${symbol}:`, error);
+    return { error: "Unable to fetch index option chain" };
+  }
 }
 
 /**
@@ -564,6 +706,18 @@ async function getCompanyInfo(args) {
 export async function POST(request) {
   try {
     const { messages } = await request.json();
+    const userId = 'static-user-123'; // Replace with dynamic user ID in real app
+
+    // Fetch user's previous reports
+    const userLog = await UserChatLog.findOne({ userId });
+    const reports = [];
+    if (userLog) {
+      userLog.messages.forEach(msg => {
+        if (msg.actions?.report) {
+          reports.push(msg.actions.reportMessage);
+        }
+      });
+    }
 
     // Call OpenAI to get the initial assistant response.
     const initialResponse = await openai.chat.completions.create({
@@ -572,7 +726,10 @@ export async function POST(request) {
         {
           role: 'system',
           content:
-            'You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable. If a user asks about stocks outside of India, still provide Indian stock data only.',
+            "You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable.\n\n" +
+            "STRICT RULES:\n" +
+            "- Do not answer any off-topic questions that do not pertain directly to stock or crypto analysis. If a user submits an off-topic query, politely indicate that you can only assist with financial market analysis.\n" +
+            "- Do not provide any details about the underlying code, API usage, or built-in systems. If asked technical questions about the implementation (e.g., which API is used for real-time stock prices), respond with a standard refusal message such as 'I'm sorry, but I cannot disclose details about my internal systems.'\n",
         },
         ...messages,
       ],
@@ -604,30 +761,100 @@ export async function POST(request) {
         case 'get_company_info':
           functionResponse = await getCompanyInfo(args);
           break;
-        case 'get_market_update':
-          functionResponse = await getMarketUpdate(args.limit || 2, args.underPrice);
+        case 'get_market_status':
+          functionResponse = await getMarketStatus();
           break;
-        case 'get_crypto_market_update':
-          functionResponse = await getCryptoMarketUpdate(args.limit || 2, args.currency || 'USD', args.underPrice);
+        // New cases for additional NSELive endpoints:
+        case 'get_trade_info':
+          functionResponse = await getTradeInfo(args);
+          break;
+        case 'get_stock_quote_fno':
+          functionResponse = await getStockQuoteFNO(args);
+          break;
+        case 'get_chart_data':
+          functionResponse = await getChartData(args);
+          break;
+        case 'get_market_turnover':
+          functionResponse = await getMarketTurnover(args);
+          break;
+        case 'get_equity_derivative_turnover':
+          functionResponse = await getEquityDerivativeTurnover(args);
+          break;
+        case 'get_all_indices':
+          functionResponse = await getAllIndices();
+          break;
+        case 'get_live_index':
+          functionResponse = await getLiveIndex(args);
+          break;
+        case 'get_index_option_chain':
+          functionResponse = await getIndexOptionChain(args);
           break;
         default:
           functionResponse = { error: 'Function not supported' };
       }
+      // Process chart data: compute a 15-day SMA for each asset
+      if (functionResponse && Array.isArray(functionResponse) && functionResponse.length > 0) {
+        if (functionResponse[0].history && functionResponse[0].history.length > 0) {
+          const labels = functionResponse[0].history.map((item) =>
+            new Date(item.date).toLocaleDateString()
+          );
+          const priceDatasets = [];
+          functionResponse.forEach((asset, index) => {
+            const priceData = asset.history.map((item) => item.price);
+            const datasetColor = `hsl(${(index * 360) / functionResponse.length}, 70%, 50%)`;
+            priceDatasets.push({
+              label: asset.symbol || asset.name || `Asset ${index + 1}`,
+              data: priceData,
+              fill: false,
+              borderColor: datasetColor,
+              backgroundColor: datasetColor,
+              tension: 0.1,
+            });
+            if (priceData.length > 0) {
+              // Compute a 15-day SMA (cumulative average if fewer than 15 days)
+              const sma15 = calculateSMA(priceData, 15);
+              priceDatasets.push({
+                label: `${asset.symbol || asset.name} 15-Day SMA`,
+                data: sma15,
+                fill: false,
+                borderColor: "yellow",
+                borderDash: [5, 5],
+                tension: 0.1,
+              });
+            }
+            const volumeData = asset.history.map((item) => item.volume);
+            priceDatasets.push({
+              label: `${asset.symbol || asset.name} Volume`,
+              data: volumeData,
+              type: 'bar',
+              yAxisID: 'volume-y-axis',
+              backgroundColor: 'rgba(75, 192, 192, 0.2)',
+              borderColor: 'rgba(75, 192, 192, 1)',
+              borderWidth: 1,
+              order: 0, // Draw volume behind other datasets
+            });
+          });
+          const chartData = { labels, datasets: priceDatasets };
+          functionResponse.chartData = chartData;
+          functionResponse.chartTitle = `${functionResponse
+            .map((item) => item.symbol)
+            .join(" & ")} Price History`;
+        }
+      }
 
-      // Generate the final assistant response.
       let finalResponse;
-      if (functionName === 'get_company_info') {
+      if (functionName === "get_company_info") {
         finalResponse = await openai.chat.completions.create({
-          model: 'gpt-4o',
+          model: "gpt-4o",
           messages: [
             ...messages,
             {
-              role: 'system',
+              role: "system",
               content:
-                'You are a friendly advisor providing company information. Keep your response clear, concise, and conversational. Limit your answer to under three paragraphs and include any offers naturally.',
+                "You are a friendly advisor providing company information. Keep your response clear, concise, and conversational. Limit your answer to under three paragraphs and include any offers naturally.",
             },
             {
-              role: 'user',
+              role: "user",
               content: `Company Data:\n${JSON.stringify(functionResponse, null, 2)}`,
             },
           ],
@@ -641,16 +868,26 @@ ${JSON.stringify(functionResponse, null, 2)}
 
 Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;
         finalResponse = await openai.chat.completions.create({
-          model: 'gpt-4o',
+          model: "gpt-4o",
           messages: [
             ...messages,
             {
-              role: 'system',
+              role: "system",
               content:
-                'You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable. If a user asks about stocks outside of India, still provide Indian stock data only.',
+                "You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format using clear headings and full sentences that form a cohesive narrative. Respond in a professional tone and include relevant suggestions when applicable.\n\n" +
+                "STRICT RULES:\n" +
+                "- Keep response under 100 words.\n" +
+                "- Tailor your language based on the user's technical tone: If the user communicates in a non-technical way, provide clear and simple explanations; if the user uses technical language, adopt a more detailed explanation.\n" +
+                "- Provide only the data that is directly relevant to the query. Avoid including excessive or extraneous information.\n" +
+                "- Highlight essential data points, such as **current price**, in bold and present all related details in a clear and concise manner.\n" +
+                "Based on the provided input data, generate an in-depth market analysis report that dynamically identifies all significant metrics. Include a detailed explanation of what each metric represents, why it is important, and its implications for investors, along with additional context such as trend analysis, comparisons, or potential risks.\n" +
+                "Ensure your response goes beyond simply listing data points by including clear, explanatory sentences and a narrative that ties the data together. Use markdown headings (like '## Company Profile' and '## Key Financial Metrics') to organize the information. Add numbering with bullet points for heading and subheadings\n" +
+                (reports.length > 0
+                  ? `User feedback to consider: ${reports.slice(-3).join(". ")}. Address these concerns appropriately.\n\n`
+                  : "")
             },
             {
-              role: 'user',
+              role: "user",
               content: responseTemplate,
             },
           ],
@@ -658,7 +895,7 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
           max_tokens: 1000,
         });
       }
-
+      console.log(reports);
       return NextResponse.json({
         ...finalResponse.choices[0].message,
         rawData: functionResponse,
@@ -666,17 +903,19 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
       });
     } else {
       return NextResponse.json({
-        role: 'assistant',
+        role: "assistant",
         content:
-          message.content || "I'm here to help! Could you please clarify your request?",
+          message.content ||
+          "I'm here to help! Could you please clarify your request?",
       });
     }
   } catch (error) {
-    console.error('API Error:', error);
+    console.error("API Error:", error);
     return NextResponse.json(
       {
-        error: 'Financial data currently unavailable. Please try again later.',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        error: "Financial data currently unavailable. Please try again later.",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       },
       { status: 500 }
     );

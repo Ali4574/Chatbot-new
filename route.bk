@@ -24,868 +24,6 @@ if (!mongoose.connection.readyState) {
     .catch((err) => console.error('MongoDB connection error:', err));
 }
 
-// Define a ChatLog model for storing logs in MongoDB Atlas.
-const ChatLogSchema = new mongoose.Schema({
-  messageId: { type: String, required: true },
-  sessionId: { type: String, required: true },
-  userId: { type: String, required: true },
-  timestamp: { type: Date, required: true },
-  userQuery: { type: String },
-  chatbotResponse: { type: String },
-  actions: {
-    like: { type: Boolean, default: false },
-    dislike: { type: Boolean, default: false },
-    report: { type: Boolean, default: false },
-    reportMessage: { type: String, default: '' },
-  },
-});
-const ChatLog = mongoose.models.ChatLog || mongoose.model('ChatLog', ChatLogSchema);
-
-
-
-/**
- * New ChatSession schema to maintain user session and complete chat history.
- */
-const ChatSessionSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
-  sessionId: { type: String, required: true },
-  chatHistory: [
-    {
-      messageId: { type: String, required: true },
-      role: { type: String, required: true },
-      content: { type: String, required: true },
-      timestamp: { type: Date, default: Date.now },
-    },
-  ],
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
-});
-const ChatSession =
-  mongoose.models.ChatSession || mongoose.model('ChatSession', ChatSessionSchema);
-
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-const functions = [
-  {
-    name: 'get_stock_price',
-    description:
-      'Get real-time stock price (current quote), historical price data, and basic information for one or more stock symbols. This function always returns data for Indian stocks only.',
-    parameters: {
-      type: 'object',
-      properties: {
-        symbols: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Array of stock symbols like ["RELIANCE", "TCS"] for Reliance and TCS.',
-        },
-        underPrice: {
-          type: 'number',
-          description:
-            'Optional: filter stocks with current price under this value (in INR).',
-        },
-      },
-      required: ['symbols'],
-    },
-  },
-  {
-    name: 'get_crypto_price',
-    description:
-      'Get real-time cryptocurrency price (current quote), historical price data, and basic information for one or more crypto symbols. Optionally, specify the currency ("USD" or "INR") and a maximum price (underPrice).',
-    parameters: {
-      type: 'object',
-      properties: {
-        symbols: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Array of cryptocurrency symbols like ["BTC", "ETH"] for Bitcoin and Ethereum.',
-        },
-        currency: {
-          type: 'string',
-          enum: ['USD', 'INR'],
-          description:
-            'Currency for the price. Default is USD. For INR conversion, use "INR".',
-        },
-        underPrice: {
-          type: 'number',
-          description:
-            'Optional: filter cryptos with current price under this value (in the specified currency).',
-        },
-      },
-      required: ['symbols'],
-    },
-  },
-  {
-    name: 'get_top_stocks',
-    description:
-      'Get the trending Indian stocks in real time using NSE data. Optionally, specify a price filter (underPrice).',
-    parameters: {
-      type: 'object',
-      properties: {
-        limit: {
-          type: 'number',
-          description: 'Number of top stocks to fetch (default is 5).',
-        },
-        underPrice: {
-          type: 'number',
-          description:
-            'Optional: filter stocks with price under this value (in INR).',
-        },
-      },
-    },
-  },
-  {
-    name: 'get_top_cryptos',
-    description:
-      'Get the trending cryptocurrencies in real time. Optionally, specify the currency ("USD" or "INR") and a price filter (underPrice).',
-    parameters: {
-      type: 'object',
-      properties: {
-        limit: {
-          type: 'number',
-          description: 'Number of top cryptos to fetch (default is 5).',
-        },
-        currency: {
-          type: 'string',
-          enum: ['USD', 'INR'],
-          description:
-            'Currency for the price. Default is USD. For INR conversion, use "INR".',
-        },
-        underPrice: {
-          type: 'number',
-          description:
-            'Optional: filter cryptos with current price under this value (in the specified currency).',
-        },
-      },
-    },
-  },
-  {
-    name: 'get_company_info',
-    description: 'Get information about Profit Flow company and services',
-    parameters: {
-      type: 'object',
-      properties: {
-        category: {
-          type: 'string',
-          enum: [
-            'all',
-            'features',
-            'pricing',
-            'benefits',
-            'support',
-            'faq',
-            'subscription',
-          ],
-          description: 'Category of information requested',
-        },
-      },
-    },
-  },
-  {
-    name: 'get_market_update',
-    description:
-      'Get a comprehensive update of the Indian stock market that includes trending NSE stocks and current market news.',
-    parameters: {
-      type: 'object',
-      properties: {
-        limit: {
-          type: 'number',
-          description: 'Number of top stocks to fetch (default is 5).',
-        },
-        underPrice: {
-          type: 'number',
-          description:
-            'Optional: filter stocks with price under this value (in INR).',
-        },
-      },
-    },
-  },
-  {
-    name: 'get_crypto_market_update',
-    description:
-      'Get a comprehensive update of the cryptocurrency market that includes trending cryptocurrencies and current crypto market news.',
-    parameters: {
-      type: 'object',
-      properties: {
-        limit: {
-          type: 'number',
-          description: 'Number of top cryptocurrencies to fetch (default is 5).',
-        },
-        currency: {
-          type: 'string',
-          enum: ['USD', 'INR'],
-          description:
-            'Currency for the price. Default is USD. For INR conversion, use "INR".',
-        },
-        underPrice: {
-          type: 'number',
-          description:
-            'Optional: filter cryptocurrencies with current price under this value (in the specified currency).',
-        },
-      },
-    },
-  },
-];
-
-/**
- * Helper: Fetch realtime data for a ticker.
- */
-async function fetchRealtimeData(ticker) {
-  try {
-    const quote = await yahooFinance.quote(ticker);
-    if (!quote) return null;
-    const now = new Date().toISOString();
-    return { dates: [now], prices: [quote.regularMarketPrice] };
-  } catch (error) {
-    console.error(`Error fetching realtime data for ${ticker}:`, error);
-    return null;
-  }
-}
-
-/**
- * Helper: Fetch historical data for a ticker.
- */
-async function fetchHistoricalData(ticker, period1, period2, interval = '1d') {
-  try {
-    const historical = await yahooFinance.historical(ticker, { period1, period2, interval });
-    return historical.map(item => ({
-      date: item.date,
-      price: item.close,
-    }));
-  } catch (error) {
-    console.error(`Error fetching historical data for ${ticker}:`, error);
-    return [];
-  }
-}
-
-/**
- * Helper: Fetch detailed info for a ticker.
- */
-async function fetchDetailedInfo(ticker) {
-  try {
-    const detailedInfo = await yahooFinance.quoteSummary(ticker, {
-      modules: ['summaryDetail', 'summaryProfile', 'assetProfile']
-    });
-    return detailedInfo;
-  } catch (error) {
-    console.error(`Error fetching detailed info for ${ticker}:`, error);
-    return null;
-  }
-}
-
-/**
- * Helper: Fetch recent news for a ticker.
- */
-async function fetchNews(ticker) {
-  try {
-    const searchResult = await yahooFinance.search(`${ticker} news`, { lang: 'en-IN', region: 'IN' });
-    let news = searchResult.news || [];
-    if (!news.length) {
-      console.warn(`No news found for ${ticker}, fetching general market news.`);
-      news = await fetchMarketNews();
-    }
-    return news;
-  } catch (error) {
-    console.error(`Error fetching news for ${ticker}:`, error);
-    return [];
-  }
-}
-
-/**
- * New Helper: Fetch general market news.
- */
-async function fetchMarketNews() {
-  try {
-    const searchResult = await yahooFinance.search("Indian stock market", { lang: 'en-IN', region: 'IN' });
-    return searchResult.news || [];
-  } catch (error) {
-    console.error("Error fetching market news:", error);
-    return [];
-  }
-}
-
-/**
- * New Helper: Fetch crypto market news.
- */
-async function fetchCryptoMarketNews() {
-  try {
-    const searchResult = await yahooFinance.search("cryptocurrency market news", { lang: 'en-IN', region: 'IN' });
-    return searchResult.news || [];
-  } catch (error) {
-    console.error("Error fetching crypto market news:", error);
-    return [];
-  }
-}
-
-/**
- * Fetch real-time stock data for Indian stocks.
- */
-async function getStockPrice(symbols, underPrice) {
-  const results = [];
-  const now = new Date();
-  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-  for (let symbol of symbols) {
-    try {
-      let querySymbol = symbol;
-      if (!symbol.includes('.') && /^[A-Z]+$/.test(symbol)) {
-        querySymbol = `${symbol}.NS`;
-      }
-      const quote = await yahooFinance.quote(querySymbol);
-      const rtData = await fetchRealtimeData(querySymbol);
-      if (!rtData) {
-        results.push({ symbol, error: 'No real-time data available' });
-        continue;
-      }
-      const history = await fetchHistoricalData(querySymbol, past7Days, now, '1d');
-      const detailedInfo = await fetchDetailedInfo(querySymbol);
-      const news = await fetchNews(querySymbol);
-
-      results.push({
-        symbol: querySymbol,
-        name: quote.longName || symbol,
-        dates: rtData.dates,
-        prices: rtData.prices,
-        history,
-        change: quote.regularMarketChange,
-        changePercentage: quote.regularMarketChangePercent,
-        marketCap: quote.marketCap,
-        detailedInfo,
-        news
-      });
-    } catch (error) {
-      console.error(`Error fetching stock price for ${symbol}:`, error);
-      results.push({ symbol, error: 'Unable to fetch data' });
-    }
-  }
-  if (underPrice !== undefined) {
-    return results.filter((r) => r.prices[0] < underPrice);
-  }
-  return results;
-}
-
-/**
- * Fetch trending (top) Indian stocks in real time.
- */
-async function getTopStocks(limit = 5, underPrice) {
-  let results = [];
-  const now = new Date();
-  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-  try {
-    const cookieResponse = await axios.get('https://www.nseindia.com', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
-    });
-    const cookies = cookieResponse.headers['set-cookie'];
-    const cookieHeader = cookies ? cookies.join('; ') : '';
-
-    const nseResponse = await axios.get(
-      'https://www.nseindia.com/api/live-analysis-variations?index=gainers',
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-          'Accept': 'application/json',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': 'https://www.nseindia.com/',
-          'Cookie': cookieHeader,
-        },
-      }
-    );
-    const trendingData = nseResponse.data?.NIFTY?.data;
-    if (!trendingData || trendingData.length === 0) {
-      throw new Error('No trending data available from NSE API');
-    }
-    const symbols = trendingData
-      .map((item) => item.symbol)
-      .slice(0, limit)
-      .map((sym) => (sym.includes('.') ? sym : sym + '.NS'));
-    for (const symbol of symbols) {
-      try {
-        const quote = await yahooFinance.quote(symbol);
-        const rtData = await fetchRealtimeData(symbol);
-        if (!rtData) continue;
-        const history = await fetchHistoricalData(symbol, past7Days, now, '1d');
-        const detailedInfo = await fetchDetailedInfo(symbol);
-        const news = await fetchNews(symbol);
-        results.push({
-          symbol,
-          name: quote.longName || symbol,
-          dates: rtData.dates,
-          prices: rtData.prices,
-          history,
-          change: quote.regularMarketChange,
-          changePercentage: quote.regularMarketChangePercent,
-          marketCap: quote.marketCap,
-          detailedInfo,
-          news
-        });
-      } catch (err) {
-        console.error(`Error fetching realtime data for ${symbol}:`, err);
-      }
-    }
-  } catch (error) {
-    console.error('Error fetching top stocks from NSE:', error);
-    return { error: 'Unable to fetch trending Indian stocks from NSE.' };
-  }
-  if (underPrice !== undefined) {
-    results = results.filter((r) => r.prices[0] < underPrice);
-  }
-  return results;
-}
-
-/**
- * Fetch real-time cryptocurrency data.
- */
-async function getCryptoPrice(symbols, currency = 'USD', underPrice) {
-  let conversionRate = 1;
-  if (currency === 'INR') {
-    try {
-      const rateQuote = await yahooFinance.quote('USDINR=X');
-      conversionRate = rateQuote.regularMarketPrice || 1;
-    } catch (error) {
-      console.error('Error fetching conversion rate:', error);
-    }
-  }
-  const results = [];
-  const now = new Date();
-  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  for (let symbol of symbols) {
-    try {
-      if (!symbol.includes('-')) {
-        symbol = `${symbol}-USD`;
-      }
-      const quote = await yahooFinance.quote(symbol);
-      const rtData = await fetchRealtimeData(symbol);
-      if (!rtData) {
-        results.push({ symbol, error: 'No real-time data available' });
-        continue;
-      }
-      let price = rtData.prices[0];
-      if (currency === 'INR') {
-        price = price * conversionRate;
-      }
-      const history = await fetchHistoricalData(symbol, past7Days, now, '1d');
-      let detailedInfo = null;
-      let news = [];
-      try {
-        detailedInfo = await fetchDetailedInfo(symbol);
-        news = await fetchNews(symbol);
-      } catch (err) {
-        console.error(`Error fetching detailed info or news for ${symbol}:`, err);
-      }
-      results.push({
-        symbol,
-        name: quote.shortName || symbol,
-        dates: rtData.dates,
-        prices: [price],
-        history,
-        change: quote.regularMarketChange,
-        changePercentage: quote.regularMarketChangePercent,
-        marketCap: quote.marketCap,
-        detailedInfo,
-        news,
-      });
-    } catch (error) {
-      console.error(`Error fetching crypto price for ${symbol}:`, error);
-      results.push({ symbol, error: 'Unable to fetch data' });
-    }
-  }
-  if (underPrice !== undefined) {
-    const filtered = results.filter((r) => r.prices[0] < underPrice);
-    return filtered.length > 0 ? filtered : [{ message: `No cryptocurrencies found with a price under ${underPrice}.` }];
-  }
-  return results;
-}
-
-/**
- * Fetch trending (top) cryptocurrencies in real time.
- */
-async function getTopCryptos(limit = 5, currency = 'USD', underPrice) {
-  let conversionRate = 1;
-  if (currency === 'INR') {
-    try {
-      const rateQuote = await yahooFinance.quote('USDINR=X');
-      conversionRate = rateQuote.regularMarketPrice || 1;
-    } catch (error) {
-      console.error('Error fetching conversion rate:', error);
-    }
-  }
-  try {
-    const response = await fetch(
-      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${limit}&page=1`
-    );
-    const coins = await response.json();
-    if (!coins || !coins.length) {
-      throw new Error('Failed to fetch top cryptocurrencies');
-    }
-    let results = [];
-    const now = new Date();
-    const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    for (const coin of coins) {
-      const symbol = `${coin.symbol.toUpperCase()}-USD`;
-      try {
-        const quote = await yahooFinance.quote(symbol);
-        const rtData = await fetchRealtimeData(symbol);
-        if (!rtData) continue;
-        let price = rtData.prices[0];
-        if (currency === 'INR') {
-          price = price * conversionRate;
-        }
-        const history = await fetchHistoricalData(symbol, past7Days, now, '1d');
-        results.push({
-          symbol,
-          name: quote.shortName || coin.name,
-          dates: rtData.dates,
-          prices: [price],
-          history,
-          change: quote.regularMarketChange,
-          changePercentage: quote.regularMarketChangePercent,
-          marketCap: quote.marketCap,
-        });
-      } catch (err) {
-        console.error(`Error processing ${symbol}:`, err);
-      }
-    }
-    if (underPrice !== undefined) {
-      results = results.filter((r) => r.prices[0] < underPrice);
-      return results.length > 0 ? results : [{ message: `No cryptocurrencies found with a price under ${underPrice}.` }];
-    }
-    return results;
-  } catch (error) {
-    console.error('Error fetching top cryptos:', error);
-    return { error: 'Unable to fetch top cryptos' };
-  }
-}
-
-/**
- * New Function: Fetch crypto market update.
- */
-async function getCryptoMarketUpdate(limit = 2, currency = 'USD', underPrice) {
-  const topCryptos = await getTopCryptos(limit, currency, underPrice);
-  const cryptoNews = await fetchCryptoMarketNews();
-  return {
-    topCryptos,
-    newsHighlights: cryptoNews.slice(0, 5)
-  };
-}
-
-/**
- * New Function: Fetch market update.
- */
-async function getMarketUpdate(limit = 2, underPrice) {
-  const topStocks = await getTopStocks(limit, underPrice);
-  const marketNews = await fetchMarketNews();
-  return {
-    topStocks,
-    newsHighlights: marketNews.slice(0, 5)
-  };
-}
-
-/**
- * Fetch company information from MongoDB Atlas.
- */
-async function getCompanyInfo(args) {
-  let category = args?.category || 'all';
-  if (category === 'subscription') {
-    category = 'pricing';
-  }
-  const companyDoc = await CompanyInfo.findOne({ name: 'Profit Flow' }).lean();
-  if (!companyDoc) {
-    throw new Error('Company information not found in the database.');
-  }
-  return category === 'all' ? companyDoc : { [category]: companyDoc[category] };
-}
-
-export async function POST(request) {
-  try {
-    // Expect the client to send "messages" and optionally a "userId".
-    const { messages, userId } = await request.json();
-
-    // If no userId is provided, generate one (this could be a guest id)
-    // const finalUserId = userId || `guest-${uuidv4()}`;
-    const finalUserId = 2
-    // Generate a new session id for every page load (i.e. every API call)
-    const sessionId = uuidv4();
-
-    // Create a new chat session document with the current conversation history.
-    // (Here we store all incoming messages from the client.)
-    const initialChatHistory = messages.map((msg) => ({
-      messageId: uuidv4(),
-      role: msg.role,
-      content: msg.content,
-      timestamp: new Date(),
-    }));
-    await ChatSession.create({
-      userId: finalUserId,
-      sessionId,
-      chatHistory: initialChatHistory,
-    });
-
-    // Call OpenAI to get the initial assistant response.
-    const initialResponse = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable. If a user asks about stocks outside of India, still provide Indian stock data only.',
-        },
-        ...messages,
-      ],
-      functions,
-      function_call: 'auto',
-    });
-    const message = initialResponse.choices[0].message;
-
-    // Generate a unique messageId for logging.
-    const messageId = uuidv4();
-    const userMessages = messages.filter((msg) => msg.role === 'user');
-    const lastUserMessage =
-      userMessages.length > 0 ? userMessages[userMessages.length - 1].content : '';
-
-    if (message.function_call) {
-      const functionName = message.function_call.name;
-      const args = JSON.parse(message.function_call.arguments || '{}');
-      let functionResponse;
-
-      // Dispatch to the appropriate helper function.
-      switch (functionName) {
-        case 'get_stock_price':
-          functionResponse = await getStockPrice(args.symbols, args.underPrice);
-          break;
-        case 'get_top_stocks':
-          functionResponse = await getTopStocks(args.limit || 2, args.underPrice);
-          break;
-        case 'get_crypto_price':
-          functionResponse = await getCryptoPrice(
-            args.symbols,
-            args.currency || 'USD',
-            args.underPrice
-          );
-          break;
-        case 'get_top_cryptos':
-          functionResponse = await getTopCryptos(
-            args.limit || 2,
-            args.currency || 'USD',
-            args.underPrice
-          );
-          break;
-        case 'get_company_info':
-          functionResponse = await getCompanyInfo(args);
-          break;
-        case 'get_market_update':
-          functionResponse = await getMarketUpdate(args.limit || 2, args.underPrice);
-          break;
-        case 'get_crypto_market_update':
-          functionResponse = await getCryptoMarketUpdate(
-            args.limit || 2,
-            args.currency || 'USD',
-            args.underPrice
-          );
-          break;
-        default:
-          functionResponse = { error: 'Function not supported' };
-      }
-
-      let finalResponse;
-      if (functionName === 'get_company_info') {
-        finalResponse = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [
-            ...messages,
-            {
-              role: 'system',
-              content:
-                'You are a friendly advisor providing company information. Keep your response clear, concise, and conversational. Limit your answer to under three paragraphs and include any offers naturally.',
-            },
-            {
-              role: 'user',
-              content: `Company Data:\n${JSON.stringify(functionResponse, null, 2)}`,
-            },
-          ],
-          temperature: 0.7,
-          max_tokens: 500,
-        });
-      } else {
-        const responseTemplate = `Please generate a creative and professional financial update using the data provided below.
-Data:
-${JSON.stringify(functionResponse, null, 2)}
-
-Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;
-        finalResponse = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [
-            ...messages,
-            {
-              role: 'system',
-              content:
-                'You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable. If a user asks about stocks outside of India, still provide Indian stock data only.',
-            },
-            {
-              role: 'user',
-              content: responseTemplate,
-            },
-          ],
-          temperature: 0.6,
-          max_tokens: 1000,
-        });
-      }
-
-      // Append the assistant’s response to the chat session history.
-      await ChatSession.findOneAndUpdate(
-        { sessionId },
-        {
-          $push: {
-            chatHistory: {
-              messageId: uuidv4(),
-              role: 'assistant',
-              content: finalResponse.choices[0].message.content,
-              timestamp: new Date(),
-            },
-          },
-          updatedAt: new Date(),
-        }
-      );
-
-      // Write a new log record that also records the session and user info.
-      const logItem = {
-        messageId,
-        sessionId,
-        userId: finalUserId,
-        timestamp: new Date().toISOString(),
-        userQuery: lastUserMessage,
-        chatbotResponse: finalResponse.choices[0].message.content,
-        actions: {
-          like: false,
-          dislike: false,
-          report: false,
-          reportMessage: '',
-        },
-      };
-
-      try {
-        await ChatLog.create(logItem);
-        console.log('Log written to MongoDB Atlas:', messageId);
-      } catch (logError) {
-        console.error('Error writing log to MongoDB Atlas:', logError);
-      }
-
-      return NextResponse.json({
-        ...finalResponse.choices[0].message,
-        rawData: functionResponse,
-        functionName: message.function_call.name,
-        messageId,
-        sessionId,
-        userId: finalUserId,
-      });
-    } else {
-      return NextResponse.json({
-        role: 'assistant',
-        content:
-          message.content ||
-          "I'm here to help! Could you please clarify your request?",
-      });
-    }
-  } catch (error) {
-    console.error('API Error:', error);
-    return NextResponse.json(
-      {
-        error: 'Financial data currently unavailable. Please try again later.',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      },
-      { status: 500 }
-    );
-  }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// src/app/api/chat/route.js
-
-import { NextResponse } from 'next/server';
-import OpenAI from 'openai';
-import mongoose from 'mongoose';
-import CompanyInfo from '@/src/models/CompanyInfo';
-import dotenv from 'dotenv';
-import yahooFinance from 'yahoo-finance2';
-import axios from 'axios';
-import { v4 as uuidv4 } from 'uuid';
-
-dotenv.config({ path: '.env.local' });
-
-const MONGODB_URI = process.env.MONGODB_URI;
-
-// Reuse MongoDB connection in a serverless environment
-if (!mongoose.connection.readyState) {
-  mongoose
-    .connect(MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    })
-    .then(() => console.log('Connected to MongoDB Atlas'))
-    .catch((err) => console.error('MongoDB connection error:', err));
-}
-
-// Define a ChatLog model for storing logs in MongoDB Atlas.
-const ChatLogSchema = new mongoose.Schema({
-  messageId: { type: String, required: true },
-  timestamp: { type: Date, required: true },
-  userQuery: { type: String },
-  chatbotResponse: { type: String },
-  actions: {
-    like: { type: Boolean, default: false },
-    dislike: { type: Boolean, default: false },
-    report: { type: Boolean, default: false },
-    reportMessage: { type: String, default: '' },
-  },
-});
-const ChatLog = mongoose.models.ChatLog || mongoose.model('ChatLog', ChatLogSchema);
-
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const functions = [
@@ -1443,11 +581,6 @@ export async function POST(request) {
     });
     const message = initialResponse.choices[0].message;
 
-    // Generate a unique messageId for logging.
-    const messageId = uuidv4();
-    const userMessages = messages.filter(msg => msg.role === 'user');
-    const lastUserMessage = userMessages.length > 0 ? userMessages[userMessages.length - 1].content : '';
-
     // If OpenAI requested a function call, process that.
     if (message.function_call) {
       const functionName = message.function_call.name;
@@ -1526,32 +659,1604 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
         });
       }
 
-      // Write a new log record to MongoDB Atlas.
-      const logItem = {
-        messageId: messageId,
-        timestamp: new Date().toISOString(),
-        userQuery: lastUserMessage,
-        chatbotResponse: finalResponse.choices[0].message.content,
-        actions: {
-          like: false,
-          dislike: false,
-          report: false,
-          reportMessage: ""
-        },
-      };
+      return NextResponse.json({
+        ...finalResponse.choices[0].message,
+        rawData: functionResponse,
+        functionName: message.function_call.name,
+      });
+    } else {
+      return NextResponse.json({
+        role: 'assistant',
+        content:
+          message.content || "I'm here to help! Could you please clarify your request?",
+      });
+    }
+  } catch (error) {
+    console.error('API Error:', error);
+    return NextResponse.json(
+      {
+        error: 'Financial data currently unavailable. Please try again later.',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      },
+      { status: 500 }
+    );
+  }
+}
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import { NextResponse } from 'next/server';
+import mongoose from 'mongoose';
+import UserChatLog from '@/src/models/UserChatLog';
+import dotenv from 'dotenv';
+
+dotenv.config({ path: '.env.local' });
+
+const MONGODB_URI = process.env.MONGODB_URI;
+
+// Connect to MongoDB (ensure that you are not reconnecting on every request)
+if (!mongoose.connection.readyState) {
+  mongoose.connect(MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
+}
+
+export async function POST(request) {
+  try {
+    const { userId, messages } = await request.json();
+
+    // Update or create document with the given userId
+    await UserChatLog.findOneAndUpdate(
+      { userId },
+      { $push: { messages: { $each: messages } } },
+      { upsert: true, new: true }
+    );
+
+    return NextResponse.json({ message: 'Chat log updated successfully' });
+  } catch (error) {
+    console.error('Error saving chat log:', error);
+    return NextResponse.json(
+      { error: 'Failed to save chat log', details: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import { NextResponse } from 'next/server';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+import UserChatLog from '@/src/models/UserChatLog';
+
+dotenv.config({ path: '.env.local' });
+
+const MONGODB_URI = process.env.MONGODB_URI;
+
+// Connect to MongoDB if not already connected.
+if (!mongoose.connection.readyState) {
+  mongoose
+    .connect(MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    })
+    .then(() => console.log('Connected to MongoDB Atlas'))
+    .catch((err) => console.error('MongoDB connection error:', err));
+}
+
+export async function PUT(request) {
+  try {
+    // Default userId to 'static-user-123' if not provided.
+    const { userId = 'static-user-123', messageId, action, reportMessage } = await request.json();
+    console.log("Received feedback update:", { userId, messageId, action, reportMessage });
+
+    // Validate that the action is allowed.
+    if (!['like', 'dislike', 'report'].includes(action)) {
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    }
+
+    // Build the update object based on the action.
+    const update = {};
+    if (action === 'like') {
+      update["messages.$.actions.like"] = true;
+      update["messages.$.actions.dislike"] = false;
+    } else if (action === 'dislike') {
+      update["messages.$.actions.dislike"] = true;
+      update["messages.$.actions.like"] = false;
+    } else if (action === 'report') {
+      update["messages.$.actions.report"] = true;
+      update["messages.$.actions.reportMessage"] = reportMessage || "";
+    }
+
+    // Use the positional operator "$" to update the matching message in the messages array.
+    const result = await UserChatLog.updateOne(
+      { userId, "messages.messageId": messageId },
+      { $set: update }
+    );
+
+    if (result.modifiedCount === 0) {
+      return NextResponse.json({ error: 'Message not found or feedback not updated' }, { status: 404 });
+    }
+
+    return NextResponse.json({ message: 'Feedback updated successfully', messageId });
+  } catch (error) {
+    console.error('Feedback API error:', error);
+    return NextResponse.json(
+      { error: 'Failed to update feedback', details: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"use client";
+import React, { useState, useRef, useEffect } from 'react';
+import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
+import {
+  Box,
+  TextField,
+  CircularProgress,
+  Typography,
+  IconButton,
+  Grid,
+  ToggleButton,
+  ToggleButtonGroup,
+  Button,
+  Tooltip,
+} from '@mui/material';
+import {
+  Send as SendIcon,
+  ThumbUpAltOutlined,
+  ThumbDownAltOutlined,
+  FlagOutlined,
+  Check,
+  ContentCopy,
+} from '@mui/icons-material';
+// Import filled variants:
+import ThumbUpAlt from '@mui/icons-material/ThumbUpAlt';
+import ThumbDownAlt from '@mui/icons-material/ThumbDownAlt';
+import Flag from '@mui/icons-material/Flag';
+
+import ReactMarkdown from 'react-markdown';
+import { styled, keyframes } from '@mui/material/styles';
+import { Line, Bar } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title as ChartTitle,
+  Tooltip as ChartTooltip,
+  Legend,
+} from 'chart.js';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ChartTitle,
+  ChartTooltip,
+  Legend
+);
+
+const fadeIn = keyframes`
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
+
+const ChatContainer = styled(Box)(({ theme }) => ({
+  height: '80vh',
+  display: 'flex',
+  flexDirection: 'column',
+  backgroundColor: 'transparent',
+  color: '#fff',
+  borderRadius: theme.shape.borderRadius,
+  padding: theme.spacing(2),
+  overflow: 'hidden',
+}));
+
+const QuestionBox = styled(Box)(({ theme }) => ({
+  alignSelf: 'flex-end',
+  background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+  color: '#fff',
+  borderRadius: '20px 20px 20px 0',
+  padding: theme.spacing(1.5),
+  marginBottom: theme.spacing(1),
+  display: 'inline-block',
+  animation: `${fadeIn} 0.5s ease-out`,
+}));
+
+const AnswerText = styled(Box)(({ theme }) => ({
+  alignSelf: 'flex-start',
+  padding: theme.spacing(1.5),
+  marginBottom: theme.spacing(2),
+  maxWidth: '100%',
+  lineHeight: 1.8,
+  animation: `${fadeIn} 0.5s ease-out`,
+  '& a': {
+    color: '#2196f3 !important',
+    textDecoration: 'underline',
+    fontWeight: 500,
+    transition: 'all 0.2s ease-in-out',
+    '&:hover': {
+      color: '#1976d2 !important',
+      textDecoration: 'none !important',
+    },
+  },
+}));
+
+const ChartContainerWrapper = styled(Box)(({ theme }) => ({
+  marginTop: theme.spacing(2),
+  marginBottom: theme.spacing(2),
+}));
+
+const ChartDisplay = ({ chartData, chartType, chartTitle }) => {
+  const adjustedData = JSON.parse(JSON.stringify(chartData));
+  if (chartType === 'bar') {
+    adjustedData.datasets.forEach((dataset) => {
+      delete dataset.tension;
+      dataset.fill = true;
+    });
+  }
+  const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: { color: '#fff' },
+      },
+      title: {
+        display: true,
+        text: chartTitle,
+        color: '#fff',
+        font: { size: 16 },
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color: '#fff' },
+        grid: { color: 'rgba(255,255,255,0.2)' },
+        title: {
+          display: true,
+          text:
+            (chartData.labels &&
+              chartData.labels[0] &&
+              (chartData.labels[0].includes('-') || chartData.labels[0].includes('/')))
+              ? 'Time'
+              : 'Symbol',
+          color: '#fff',
+        },
+      },
+      y: {
+        ticks: { color: '#fff' },
+        grid: { color: 'rgba(255,255,255,0.2)' },
+        title: { display: true, text: 'Price (USD)', color: '#fff' },
+      },
+    },
+  };
+
+  return chartType === 'line' ? (
+    <Line data={chartData} options={commonOptions} />
+  ) : (
+    <Bar data={adjustedData} options={commonOptions} />
+  );
+};
+
+const markdownComponents = {
+  p: ({ node, ...props }) => (
+    <p style={{ textAlign: 'justify', textIndent: '1em' }} {...props} />
+  ),
+  h1: ({ node, ...props }) => (
+    <h1
+      style={{
+        margin: '1.2em 0 0.5em',
+        paddingBottom: '0.3em',
+        fontWeight: 'bold',
+        textAlign: 'justify',
+      }}
+      {...props}
+    />
+  ),
+  h2: ({ node, ...props }) => (
+    <h2
+      style={{
+        margin: '1.2em 0 0.5em',
+        paddingBottom: '0.3em',
+        fontWeight: 'bold',
+        textAlign: 'justify',
+      }}
+      {...props}
+    />
+  ),
+  h3: ({ node, ...props }) => (
+    <h3 style={{ margin: '1em 0 0.5em', fontWeight: 'bold', textAlign: 'justify' }} {...props} />
+  ),
+  li: ({ node, ordered, ...props }) => (
+    <li style={{ marginBottom: '0.5em', marginLeft: '1em', textAlign: 'justify' }} {...props} />
+  ),
+  blockquote: ({ node, ...props }) => (
+    <blockquote
+      style={{
+        borderLeft: '4px solid #4bd8d8',
+        margin: '1em 0',
+        paddingLeft: '1em',
+        fontStyle: 'italic',
+        color: '#ccc',
+        textAlign: 'justify',
+      }}
+      {...props}
+    />
+  ),
+  a: ({ node, ...props }) => (
+    <a target="_blank" rel="noopener noreferrer" {...props} />
+  ),
+};
+
+// -------------------- Updated IconWrapper --------------------
+// This wrapper forces white icons by default and applies filled background styling.
+const UpdatedIconWrapper = styled(IconButton, {
+  shouldForwardProp: (prop) => prop !== 'active',
+})(({ theme, active }) => ({
+  color: active ? theme.palette.primary.contrastText : '#fff',
+  backgroundColor: active ? theme.palette.primary.main : 'transparent',
+  '&:hover': {
+    backgroundColor: active ? theme.palette.primary.dark : 'rgba(255,255,255,0.1)',
+  },
+}));
+
+// -------------------- FeedbackButtons Component --------------------
+const FeedbackButtons = ({ messageId, content }) => {
+  const [feedback, setFeedback] = useState(null);
+  const [reportText, setReportText] = useState('');
+  const [showReportPopup, setShowReportPopup] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const sendFeedback = async (action, reportMsg = '') => {
+    try {
+      await axios.put('/api/feedback', {
+        messageId,
+        action,
+        reportMessage: reportMsg,
+      });
+      setFeedback(action);
+    } catch (error) {
+      console.error('Error updating feedback:', error);
+    }
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+  return (
+    <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      {/* Copy Button */}
+      <Tooltip title={copied ? "Copied!" : "Copy"}>
+        <UpdatedIconWrapper onClick={handleCopy} size="small">
+          {copied ? <Check fontSize="small" /> : <ContentCopy fontSize="small" />}
+        </UpdatedIconWrapper>
+      </Tooltip>
+
+      {/* Like Button */}
+      <Tooltip title="Like">
+        <UpdatedIconWrapper
+          onClick={() => sendFeedback('like')}
+          size="small"
+          active={feedback === 'like'}
+          sx={{ display: (feedback === 'dislike' || feedback === 'report') ? 'none' : 'inline-flex' }}
+        >
+          {feedback === 'like' ? (
+            <ThumbUpAlt fontSize="small" />
+          ) : (
+            <ThumbUpAltOutlined fontSize="small" />
+          )}
+        </UpdatedIconWrapper>
+      </Tooltip>
+
+      {/* Dislike Button */}
+      <Tooltip title="Dislike">
+        <UpdatedIconWrapper
+          onClick={() => sendFeedback('dislike')}
+          size="small"
+          active={feedback === 'dislike'}
+          sx={{ display: (feedback === 'like' || feedback === 'report') ? 'none' : 'inline-flex' }}
+        >
+          {feedback === 'dislike' ? (
+            <ThumbDownAlt fontSize="small" />
+          ) : (
+            <ThumbDownAltOutlined fontSize="small" />
+          )}
+        </UpdatedIconWrapper>
+      </Tooltip>
+
+      {/* Report Button */}
+      <Tooltip title="Report">
+        <UpdatedIconWrapper
+          onClick={() => setShowReportPopup(true)}
+          size="small"
+          active={feedback === 'report'}
+          sx={{ display: feedback === 'like' ? 'none' : 'inline-flex' }}
+        >
+          {feedback === 'report' ? (
+            <Flag fontSize="small" />
+          ) : (
+            <FlagOutlined fontSize="small" />
+          )}
+        </UpdatedIconWrapper>
+      </Tooltip>
+
+      {/* Report Dialog */}
+      {showReportPopup && (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            backgroundColor: '#1e1e1e',
+            p: 3,
+            zIndex: 1000,
+            borderRadius: 2,
+            boxShadow: '0px 4px 20px rgba(0,0,0,0.5)',
+            width: '90%',
+            maxWidth: '500px',
+            border: '1px solid #2196f3',
+          }}
+        >
+          <Typography variant="subtitle1" sx={{ mb: 2, color: '#fff' }}>
+            Report Issue
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            value={reportText}
+            onChange={(e) => setReportText(e.target.value)}
+            placeholder="Please describe the issue you encountered..."
+            sx={{
+              '& .MuiInputBase-root': {
+                color: '#fff',
+                backgroundColor: 'rgba(255,255,255,0.1)',
+                borderRadius: 1,
+                '&:hover fieldset': { borderColor: '#2196f3' },
+                '&.Mui-focused fieldset': { borderColor: '#2196f3' },
+              },
+            }}
+          />
+          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+            <Button
+              variant="outlined"
+              onClick={() => setShowReportPopup(false)}
+              sx={{
+                color: '#fff',
+                borderColor: '#444',
+                '&:hover': { borderColor: '#2196f3' },
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => {
+                sendFeedback('report', reportText);
+                setShowReportPopup(false);
+              }}
+              sx={{
+                background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+                '&:hover': { opacity: 0.9 },
+              }}
+            >
+              Submit
+            </Button>
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+// -------------------- End FeedbackButtons --------------------
+
+export default function Chat() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [chartType, setChartType] = useState('line');
+  const messagesEndRef = useRef(null);
+
+  const defaultQuestions = ['top 2 stocks', 'price of infosys stock'];
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    console.log(messages);
+    if (messages.length > 0) {
+      axios.post('/api/chatlog', {
+        userId: 'static-user-123',
+        messages: messages,
+      }).catch(error => {
+        console.error('Error updating chat log:', error);
+      });
+    }
+  }, [messages]);
+
+  const sendMessage = async (messageContent) => {
+    if (!messageContent.trim() || loading) return;
+    setLoading(true);
+
+    // Generate a unique messageId for the user message.
+    const userMessage = { messageId: uuidv4(), role: 'user', content: messageContent };
+    setMessages((prev) => [...prev, userMessage]);
+
+    try {
+      const { data } = await axios.post('/api/chat', {
+        messages: [...messages, userMessage],
+      });
+      // Ensure the assistant message includes a messageId.
+      const assistantMessage = { ...data, messageId: data.messageId || uuidv4() };
+
+      // Process rawData for chartData if available.
+      if (assistantMessage.rawData && assistantMessage.rawData.length > 0) {
+        let chartData;
+        let chartTitle = '';
+
+        if (assistantMessage.rawData[0].history && assistantMessage.rawData[0].history.length > 0) {
+          const labels = assistantMessage.rawData[0].history.map((item) =>
+            new Date(item.date).toLocaleDateString()
+          );
+          const datasets = assistantMessage.rawData.map((asset, index) => ({
+            label: asset.symbol || asset.name || `Asset ${index + 1}`,
+            data: asset.history.map((item) => item.price),
+            fill: false,
+            borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+            backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+            tension: 0.1,
+          }));
+          chartData = { labels, datasets };
+          chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
+        } else if (assistantMessage.rawData[0].dates && assistantMessage.rawData[0].prices) {
+          if (assistantMessage.rawData[0].prices.length > 1) {
+            chartData = {
+              labels: assistantMessage.rawData[0].dates,
+              datasets: assistantMessage.rawData.map((item, index) => ({
+                label: item.symbol || 'Price',
+                data: item.prices,
+                fill: false,
+                borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+                backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+                tension: 0.1,
+              })),
+            };
+            chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
+          } else {
+            chartData = {
+              labels: assistantMessage.rawData.map((item, index) => item.symbol || `Asset ${index + 1}`),
+              datasets: [
+                {
+                  label: 'Current Price',
+                  data: assistantMessage.rawData.map((item) => item.prices[0]),
+                  backgroundColor: assistantMessage.rawData.map(
+                    (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
+                  ),
+                  borderColor: assistantMessage.rawData.map(
+                    (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
+                  ),
+                  borderWidth: 1,
+                },
+              ],
+            };
+            chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Current Price`;
+          }
+        }
+        assistantMessage.chartData = chartData;
+        assistantMessage.chartTitle = chartTitle;
+      }
+
+      // Append the assistant message (now with messageId) to messages.
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error("Client-side error:", error);
+      setMessages((prev) => [
+        ...prev,
+        { role: '⚠️', content: "I encountered an error. Please try again or ask about financial topics." },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const messageToSend = input;
+    setInput('');
+    await sendMessage(messageToSend);
+  };
+
+  const handleExampleClick = (example) => {
+    sendMessage(example);
+  };
+
+  const handleChartType = (event, newType) => {
+    if (newType !== null) {
+      setChartType(newType);
+    }
+  };
+
+  return (
+    <Box
+      sx={{
+        maxWidth: '800px',
+        mx: 'auto',
+        p: 2,
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: 'transparent',
+        color: '#fff',
+      }}
+    >
+      <Typography variant="h5" sx={{ mb: 3, fontWeight: 300, textAlign: 'center' }}>
+        PROFIT FLOW
+      </Typography>
+
+      {messages.length === 0 && (
+        <Box sx={{ mb: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
+          {defaultQuestions.map((question, idx) => (
+            <Button
+              key={idx}
+              variant="contained"
+              onClick={() => handleExampleClick(question)}
+              sx={{
+                borderRadius: '20px',
+                background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+                color: '#fff',
+                textTransform: 'none',
+                fontWeight: 600,
+                boxShadow: '0px 3px 5px -1px rgba(0,0,0,0.2)',
+                '&:hover': {
+                  background: 'linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)',
+                },
+              }}
+            >
+              {question}
+            </Button>
+          ))}
+        </Box>
+      )}
+
+      <ChatContainer>
+        <Box
+          sx={{
+            flex: 1,
+            overflowY: 'auto',
+            pb: 1,
+            scrollbarWidth: 'none',
+            '&::-webkit-scrollbar': { display: 'none' },
+          }}
+        >
+          {messages.map((msg, i) =>
+            msg.role === 'user' ? (
+              <QuestionBox key={i}>
+                <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
+              </QuestionBox>
+            ) : (
+              <AnswerText key={i}>
+                <ReactMarkdown components={markdownComponents}>
+                  {msg.content || 'Fetching real-time data...'}
+                </ReactMarkdown>
+                {msg.chartData && (
+                  <ChartContainerWrapper>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                      <ToggleButtonGroup
+                        value={chartType}
+                        exclusive
+                        onChange={handleChartType}
+                        size="small"
+                        sx={{
+                          '& .MuiToggleButton-root': {
+                            color: '#fff',
+                            borderColor: '#444',
+                            backgroundColor: 'transparent',
+                          },
+                          '& .Mui-selected': {
+                            backgroundColor: '#444 !important',
+                            color: '#fff',
+                          },
+                        }}
+                      >
+                        <ToggleButton value="line">Line</ToggleButton>
+                        <ToggleButton value="bar">Bar</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
+                    <Box sx={{ width: '100%', height: '400px' }}>
+                      <ChartDisplay
+                        chartData={msg.chartData}
+                        chartType={chartType}
+                        chartTitle={msg.chartTitle}
+                      />
+                    </Box>
+                  </ChartContainerWrapper>
+                )}
+                {/* Render feedback buttons using the messageId */}
+                <FeedbackButtons messageId={msg.messageId} content={msg.content} />
+              </AnswerText>
+            )
+          )}
+          {loading && (
+            <AnswerText>
+              <Grid container spacing={1} alignItems="center">
+                <Grid item>
+                  <CircularProgress size={20} sx={{ color: '#fff' }} />
+                </Grid>
+              </Grid>
+            </AnswerText>
+          )}
+          <div ref={messagesEndRef} />
+        </Box>
+
+        <Box
+          component="form"
+          onSubmit={handleSubmit}
+          sx={{
+            mt: 2,
+            display: 'flex',
+            gap: 1,
+          }}
+        >
+          <TextField
+            fullWidth
+            variant="outlined"
+            size="small"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask for stock/crypto price"
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                backgroundColor: '#1e1e1e',
+                borderRadius: '8px',
+                border: '1px solid #2196f3',
+                '& fieldset': { borderColor: '#2196f3' },
+                '&:hover fieldset': { borderColor: '#fff' },
+                '&.Mui-focused fieldset': { borderColor: '#fff' },
+              },
+              input: { color: '#fff' },
+            }}
+            InputProps={{
+              endAdornment: (
+                <IconButton type="submit" color="primary" disabled={loading}>
+                  <SendIcon />
+                </IconButton>
+              ),
+            }}
+          />
+        </Box>
+      </ChatContainer>
+    </Box>
+  );
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// src/app/api/chat/route.js
+
+import { NextResponse } from 'next/server';
+import OpenAI from 'openai';
+import mongoose from 'mongoose';
+import CompanyInfo from '@/src/models/CompanyInfo';
+import dotenv from 'dotenv';
+import yahooFinance from 'yahoo-finance2';
+import UserChatLog from '@/src/models/UserChatLog';
+import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
+
+dotenv.config({ path: '.env.local' });
+
+const MONGODB_URI = process.env.MONGODB_URI;
+
+// Reuse MongoDB connection in a serverless environment
+if (!mongoose.connection.readyState) {
+  mongoose
+    .connect(MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    })
+    .then(() => console.log('Connected to MongoDB Atlas'))
+    .catch((err) => console.error('MongoDB connection error:', err));
+}
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+const functions = [
+  {
+    name: 'get_stock_price',
+    description:
+      'Get real-time stock price (current quote), historical price data, and basic information for one or more stock symbols. This function always returns data for Indian stocks only.',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbols: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Array of stock symbols like ["RELIANCE", "TCS"] for Reliance and TCS.',
+        },
+        underPrice: {
+          type: 'number',
+          description:
+            'Optional: filter stocks with current price under this value (in INR).',
+        },
+      },
+      required: ['symbols'],
+    },
+  },
+  {
+    name: 'get_crypto_price',
+    description:
+      'Get real-time cryptocurrency price (current quote), historical price data, and basic information for one or more crypto symbols. Optionally, specify the currency ("USD" or "INR") and a maximum price (underPrice).',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbols: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Array of cryptocurrency symbols like ["BTC", "ETH"] for Bitcoin and Ethereum.',
+        },
+        currency: {
+          type: 'string',
+          enum: ['USD', 'INR'],
+          description:
+            'Currency for the price. Default is USD. For INR conversion, use "INR".',
+        },
+        underPrice: {
+          type: 'number',
+          description:
+            'Optional: filter cryptos with current price under this value (in the specified currency).',
+        },
+      },
+      required: ['symbols'],
+    },
+  },
+  {
+    name: 'get_top_stocks',
+    description:
+      'Get the trending Indian stocks in real time using NSE data. Optionally, specify a price filter (underPrice).',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Number of top stocks to fetch (default is 5).',
+        },
+        underPrice: {
+          type: 'number',
+          description:
+            'Optional: filter stocks with price under this value (in INR).',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_top_cryptos',
+    description:
+      'Get the trending cryptocurrencies in real time. Optionally, specify the currency ("USD" or "INR") and a price filter (underPrice).',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Number of top cryptos to fetch (default is 5).',
+        },
+        currency: {
+          type: 'string',
+          enum: ['USD', 'INR'],
+          description:
+            'Currency for the price. Default is USD. For INR conversion, use "INR".',
+        },
+        underPrice: {
+          type: 'number',
+          description:
+            'Optional: filter cryptos with current price under this value (in the specified currency).',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_company_info',
+    description: 'Get information about Profit Flow company and services',
+    parameters: {
+      type: 'object',
+      properties: {
+        category: {
+          type: 'string',
+          enum: [
+            'all',
+            'features',
+            'pricing',
+            'benefits',
+            'support',
+            'faq',
+            'subscription',
+          ],
+          description: 'Category of information requested',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_market_update',
+    description:
+      'Get a comprehensive update of the Indian stock market that includes trending NSE stocks and current market news.',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Number of top stocks to fetch (default is 5).',
+        },
+        underPrice: {
+          type: 'number',
+          description:
+            'Optional: filter stocks with price under this value (in INR).',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_crypto_market_update',
+    description:
+      'Get a comprehensive update of the cryptocurrency market that includes trending cryptocurrencies and current crypto market news.',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Number of top cryptocurrencies to fetch (default is 5).',
+        },
+        currency: {
+          type: 'string',
+          enum: ['USD', 'INR'],
+          description:
+            'Currency for the price. Default is USD. For INR conversion, use "INR".',
+        },
+        underPrice: {
+          type: 'number',
+          description:
+            'Optional: filter cryptocurrencies with current price under this value (in the specified currency).',
+        },
+      },
+    },
+  },
+];
+
+/**
+ * Helper: Fetch realtime data for a ticker.
+ */
+async function fetchRealtimeData(ticker) {
+  try {
+    const quote = await yahooFinance.quote(ticker);
+    if (!quote) return null;
+    const now = new Date().toISOString();
+    return { dates: [now], prices: [quote.regularMarketPrice] };
+  } catch (error) {
+    console.error(`Error fetching realtime data for ${ticker}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Helper: Fetch historical data for a ticker.
+ */
+async function fetchHistoricalData(ticker, period1, period2, interval = '1d') {
+  try {
+    const historical = await yahooFinance.historical(ticker, { period1, period2, interval });
+    return historical.map(item => ({
+      date: item.date,
+      price: item.close,
+    }));
+  } catch (error) {
+    console.error(`Error fetching historical data for ${ticker}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Helper: Fetch detailed info for a ticker.
+ */
+async function fetchDetailedInfo(ticker) {
+  try {
+    const detailedInfo = await yahooFinance.quoteSummary(ticker, {
+      modules: ['summaryDetail', 'summaryProfile', 'assetProfile']
+    });
+    return detailedInfo;
+  } catch (error) {
+    console.error(`Error fetching detailed info for ${ticker}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Helper: Fetch recent news for a ticker.
+ */
+async function fetchNews(ticker) {
+  try {
+    const searchResult = await yahooFinance.search(`${ticker} news`, { lang: 'en-IN', region: 'IN' });
+    let news = searchResult.news || [];
+    if (!news.length) {
+      console.warn(`No news found for ${ticker}, fetching general market news.`);
+      news = await fetchMarketNews();
+    }
+    return news;
+  } catch (error) {
+    console.error(`Error fetching news for ${ticker}:`, error);
+    return [];
+  }
+}
+
+/**
+ * New Helper: Fetch general market news.
+ */
+async function fetchMarketNews() {
+  try {
+    const searchResult = await yahooFinance.search("Indian stock market", { lang: 'en-IN', region: 'IN' });
+    return searchResult.news || [];
+  } catch (error) {
+    console.error("Error fetching market news:", error);
+    return [];
+  }
+}
+
+/**
+ * New Helper: Fetch crypto market news.
+ */
+async function fetchCryptoMarketNews() {
+  try {
+    const searchResult = await yahooFinance.search("cryptocurrency market news", { lang: 'en-IN', region: 'IN' });
+    return searchResult.news || [];
+  } catch (error) {
+    console.error("Error fetching crypto market news:", error);
+    return [];
+  }
+}
+
+/**
+ * Fetch real-time stock data for Indian stocks.
+ */
+async function getStockPrice(symbols, underPrice) {
+  const results = [];
+  const now = new Date();
+  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  for (let symbol of symbols) {
+    try {
+      let querySymbol = symbol;
+      if (!symbol.includes('.') && /^[A-Z]+$/.test(symbol)) {
+        querySymbol = `${symbol}.NS`;
+      }
+      const quote = await yahooFinance.quote(querySymbol);
+      const rtData = await fetchRealtimeData(querySymbol);
+      if (!rtData) {
+        results.push({ symbol, error: 'No real-time data available' });
+        continue;
+      }
+      const history = await fetchHistoricalData(querySymbol, past7Days, now, '1d');
+      const detailedInfo = await fetchDetailedInfo(querySymbol);
+      const news = await fetchNews(querySymbol);
+
+      results.push({
+        symbol: querySymbol,
+        name: quote.longName || symbol,
+        dates: rtData.dates,
+        prices: rtData.prices,
+        history,
+        change: quote.regularMarketChange,
+        changePercentage: quote.regularMarketChangePercent,
+        marketCap: quote.marketCap,
+        detailedInfo,
+        news
+      });
+    } catch (error) {
+      console.error(`Error fetching stock price for ${symbol}:`, error);
+      results.push({ symbol, error: 'Unable to fetch data' });
+    }
+  }
+  if (underPrice !== undefined) {
+    return results.filter((r) => r.prices[0] < underPrice);
+  }
+  return results;
+}
+
+/**
+ * Fetch trending (top) Indian stocks in real time.
+ */
+async function getTopStocks(limit = 5, underPrice) {
+  let results = [];
+  const now = new Date();
+  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  try {
+    const cookieResponse = await axios.get('https://www.nseindia.com', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    });
+    const cookies = cookieResponse.headers['set-cookie'];
+    const cookieHeader = cookies ? cookies.join('; ') : '';
+
+    const nseResponse = await axios.get(
+      'https://www.nseindia.com/api/live-analysis-variations?index=gainers',
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Accept': 'application/json',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': 'https://www.nseindia.com/',
+          'Cookie': cookieHeader,
+        },
+      }
+    );
+    const trendingData = nseResponse.data?.NIFTY?.data;
+    if (!trendingData || trendingData.length === 0) {
+      throw new Error('No trending data available from NSE API');
+    }
+    const symbols = trendingData
+      .map((item) => item.symbol)
+      .slice(0, limit)
+      .map((sym) => (sym.includes('.') ? sym : sym + '.NS'));
+    for (const symbol of symbols) {
       try {
-        await ChatLog.create(logItem);
-        console.log('Log written to MongoDB Atlas:', messageId);
-      } catch (logError) {
-        console.error('Error writing log to MongoDB Atlas:', logError);
+        const quote = await yahooFinance.quote(symbol);
+        const rtData = await fetchRealtimeData(symbol);
+        if (!rtData) continue;
+        const history = await fetchHistoricalData(symbol, past7Days, now, '1d');
+        const detailedInfo = await fetchDetailedInfo(symbol);
+        const news = await fetchNews(symbol);
+        results.push({
+          symbol,
+          name: quote.longName || symbol,
+          dates: rtData.dates,
+          prices: rtData.prices,
+          history,
+          change: quote.regularMarketChange,
+          changePercentage: quote.regularMarketChangePercent,
+          marketCap: quote.marketCap,
+          detailedInfo,
+          news
+        });
+      } catch (err) {
+        console.error(`Error fetching realtime data for ${symbol}:`, err);
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching top stocks from NSE:', error);
+    return { error: 'Unable to fetch trending Indian stocks from NSE.' };
+  }
+  if (underPrice !== undefined) {
+    results = results.filter((r) => r.prices[0] < underPrice);
+  }
+  return results;
+}
+
+/**
+ * Fetch real-time cryptocurrency data.
+ */
+async function getCryptoPrice(symbols, currency = 'USD', underPrice) {
+  let conversionRate = 1;
+  if (currency === 'INR') {
+    try {
+      const rateQuote = await yahooFinance.quote('USDINR=X');
+      conversionRate = rateQuote.regularMarketPrice || 1;
+    } catch (error) {
+      console.error('Error fetching conversion rate:', error);
+    }
+  }
+  const results = [];
+  const now = new Date();
+  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  for (let symbol of symbols) {
+    try {
+      if (!symbol.includes('-')) {
+        symbol = `${symbol}-USD`;
+      }
+      const quote = await yahooFinance.quote(symbol);
+      const rtData = await fetchRealtimeData(symbol);
+      if (!rtData) {
+        results.push({ symbol, error: 'No real-time data available' });
+        continue;
+      }
+      let price = rtData.prices[0];
+      if (currency === 'INR') {
+        price = price * conversionRate;
+      }
+      const history = await fetchHistoricalData(symbol, past7Days, now, '1d');
+      let detailedInfo = null;
+      let news = [];
+      try {
+        detailedInfo = await fetchDetailedInfo(symbol);
+        news = await fetchNews(symbol);
+      } catch (err) {
+        console.error(`Error fetching detailed info or news for ${symbol}:`, err);
+      }
+      results.push({
+        symbol,
+        name: quote.shortName || symbol,
+        dates: rtData.dates,
+        prices: [price],
+        history,
+        change: quote.regularMarketChange,
+        changePercentage: quote.regularMarketChangePercent,
+        marketCap: quote.marketCap,
+        detailedInfo,
+        news,
+      });
+    } catch (error) {
+      console.error(`Error fetching crypto price for ${symbol}:`, error);
+      results.push({ symbol, error: 'Unable to fetch data' });
+    }
+  }
+  if (underPrice !== undefined) {
+    const filtered = results.filter((r) => r.prices[0] < underPrice);
+    return filtered.length > 0 ? filtered : [{ message: `No cryptocurrencies found with a price under ${underPrice}.` }];
+  }
+  return results;
+}
+
+/**
+ * Fetch trending (top) cryptocurrencies in real time.
+ */
+async function getTopCryptos(limit = 5, currency = 'USD', underPrice) {
+  let conversionRate = 1;
+  if (currency === 'INR') {
+    try {
+      const rateQuote = await yahooFinance.quote('USDINR=X');
+      conversionRate = rateQuote.regularMarketPrice || 1;
+    } catch (error) {
+      console.error('Error fetching conversion rate:', error);
+    }
+  }
+  try {
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${limit}&page=1`
+    );
+    const coins = await response.json();
+    if (!coins || !coins.length) {
+      throw new Error('Failed to fetch top cryptocurrencies');
+    }
+    let results = [];
+    const now = new Date();
+    const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    for (const coin of coins) {
+      const symbol = `${coin.symbol.toUpperCase()}-USD`;
+      try {
+        const quote = await yahooFinance.quote(symbol);
+        const rtData = await fetchRealtimeData(symbol);
+        if (!rtData) continue;
+        let price = rtData.prices[0];
+        if (currency === 'INR') {
+          price = price * conversionRate;
+        }
+        const history = await fetchHistoricalData(symbol, past7Days, now, '1d');
+        results.push({
+          symbol,
+          name: quote.shortName || coin.name,
+          dates: rtData.dates,
+          prices: [price],
+          history,
+          change: quote.regularMarketChange,
+          changePercentage: quote.regularMarketChangePercent,
+          marketCap: quote.marketCap,
+        });
+      } catch (err) {
+        console.error(`Error processing ${symbol}:`, err);
+      }
+    }
+    if (underPrice !== undefined) {
+      results = results.filter((r) => r.prices[0] < underPrice);
+      return results.length > 0 ? results : [{ message: `No cryptocurrencies found with a price under ${underPrice}.` }];
+    }
+    return results;
+  } catch (error) {
+    console.error('Error fetching top cryptos:', error);
+    return { error: 'Unable to fetch top cryptos' };
+  }
+}
+
+/**
+ * New Function: Fetch crypto market update.
+ */
+async function getCryptoMarketUpdate(limit = 2, currency = 'USD', underPrice) {
+  const topCryptos = await getTopCryptos(limit, currency, underPrice);
+  const cryptoNews = await fetchCryptoMarketNews();
+  return {
+    topCryptos,
+    newsHighlights: cryptoNews.slice(0, 5)
+  };
+}
+
+/**
+ * New Function: Fetch market update.
+ */
+async function getMarketUpdate(limit = 2, underPrice) {
+  const topStocks = await getTopStocks(limit, underPrice);
+  const marketNews = await fetchMarketNews();
+  return {
+    topStocks,
+    newsHighlights: marketNews.slice(0, 5)
+  };
+}
+
+/**
+ * Fetch company information from MongoDB Atlas.
+ */
+async function getCompanyInfo(args) {
+  let category = args?.category || 'all';
+  if (category === 'subscription') {
+    category = 'pricing';
+  }
+  const companyDoc = await CompanyInfo.findOne({ name: 'Profit Flow' }).lean();
+  if (!companyDoc) {
+    throw new Error('Company information not found in the database.');
+  }
+  return category === 'all' ? companyDoc : { [category]: companyDoc[category] };
+}
+
+export async function POST(request) {
+  try {
+    const { messages } = await request.json();
+
+    const userId = 'static-user-123'; // Replace with dynamic user ID in real app
+
+    // Fetch user's previous reports
+    const userLog = await UserChatLog.findOne({ userId });
+    const reports = [];
+    if (userLog) {
+      userLog.messages.forEach(msg => {
+        if (msg.actions?.report) {
+          reports.push(msg.actions.reportMessage);
+        }
+      });
+    }
+
+    // Call OpenAI to get the initial assistant response.
+    const initialResponse = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable. If a user asks about stocks outside of India, still provide Indian stock data only.',
+        },
+        ...messages,
+      ],
+      functions,
+      function_call: 'auto',
+    });
+    const message = initialResponse.choices[0].message;
+
+    // If OpenAI requested a function call, process that.
+    if (message.function_call) {
+      const functionName = message.function_call.name;
+      const args = JSON.parse(message.function_call.arguments || '{}');
+      let functionResponse;
+
+      // Dispatch to the appropriate helper function.
+      switch (functionName) {
+        case 'get_stock_price':
+          functionResponse = await getStockPrice(args.symbols, args.underPrice);
+          break;
+        case 'get_top_stocks':
+          functionResponse = await getTopStocks(args.limit || 2, args.underPrice);
+          break;
+        case 'get_crypto_price':
+          functionResponse = await getCryptoPrice(args.symbols, args.currency || 'USD', args.underPrice);
+          break;
+        case 'get_top_cryptos':
+          functionResponse = await getTopCryptos(args.limit || 2, args.currency || 'USD', args.underPrice);
+          break;
+        case 'get_company_info':
+          functionResponse = await getCompanyInfo(args);
+          break;
+        case 'get_market_update':
+          functionResponse = await getMarketUpdate(args.limit || 2, args.underPrice);
+          break;
+        case 'get_crypto_market_update':
+          functionResponse = await getCryptoMarketUpdate(args.limit || 2, args.currency || 'USD', args.underPrice);
+          break;
+        default:
+          functionResponse = { error: 'Function not supported' };
+      }
+
+      // Generate the final assistant response.
+      let finalResponse;
+      if (functionName === 'get_company_info') {
+        finalResponse = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            ...messages,
+            {
+              role: 'system',
+              content:
+                'You are a friendly advisor providing company information. Keep your response clear, concise, and conversational. Limit your answer to under three paragraphs and include any offers naturally.',
+            },
+            {
+              role: 'user',
+              content: `Company Data:\n${JSON.stringify(functionResponse, null, 2)}`,
+            },
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+        });
+      } else {
+        const responseTemplate = `Please generate a creative and professional financial update using the data provided below.
+Data:
+${JSON.stringify(functionResponse, null, 2)}
+
+Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;
+        finalResponse = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            ...messages,
+            {
+              role: 'system',
+              content:
+                'You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable. If a user asks about stocks outside of India, still provide Indian stock data only.' +
+                (reports.length > 0
+                  ? `\n\nUser feedback to consider: ${reports.slice(-3).join('. ')}. Address these concerns appropriately.`
+                  : '') +
+                '\n\nBased on the provided input data, generate an in-depth market analysis report that dynamically identifies all significant metrics. For each metric (e.g., Industry, Sector, Current Price, Market Capitalization, Dividend Rate, etc.), include:\n' +
+                '- A detailed explanation of what the metric represents, why it is important, and its implications for investors.\n' +
+                '- Additional context, such as trend analysis, comparisons, or any potential risks.\n\n' +
+                'Ensure that your response is not just a list of data points but includes clear, explanatory sentences after each bullet point. Use markdown headings (like "## Company Profile" and "## Key Financial Metrics") and bullet points to organize the information.'
+            },
+            {
+              role: 'user',
+              content: responseTemplate,
+            },
+          ],                    
+          temperature: 0.6,
+          max_tokens: 1000,
+        });
       }
 
       return NextResponse.json({
         ...finalResponse.choices[0].message,
         rawData: functionResponse,
         functionName: message.function_call.name,
-        messageId,
       });
     } else {
       return NextResponse.json({

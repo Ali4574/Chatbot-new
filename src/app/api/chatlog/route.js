@@ -1,3 +1,5 @@
+//src\app\api\chatlog\route.js
+
 import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import UserChatLog from '@/src/models/UserChatLog';

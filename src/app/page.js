@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
-import { v4 as uuidv4 } from 'uuid';
+
+import React, { useState, useRef, useEffect } from "react";
+import axios from "axios";
+import { v4 as uuidv4 } from "uuid";
 import {
   Box,
   TextField,
@@ -13,7 +14,7 @@ import {
   ToggleButtonGroup,
   Button,
   Tooltip,
-} from '@mui/material';
+} from "@mui/material";
 import {
   Send as SendIcon,
   ThumbUpAltOutlined,
@@ -21,80 +22,106 @@ import {
   FlagOutlined,
   Check,
   ContentCopy,
-} from '@mui/icons-material';
-// Import filled variants:
-import ThumbUpAlt from '@mui/icons-material/ThumbUpAlt';
-import ThumbDownAlt from '@mui/icons-material/ThumbDownAlt';
-import Flag from '@mui/icons-material/Flag';
-
-import ReactMarkdown from 'react-markdown';
-import { styled, keyframes } from '@mui/material/styles';
-import { Line, Bar } from 'react-chartjs-2';
+} from "@mui/icons-material";
+import ThumbUpAlt from "@mui/icons-material/ThumbUpAlt";
+import ThumbDownAlt from "@mui/icons-material/ThumbDownAlt";
+import Flag from "@mui/icons-material/Flag";
+import ReactMarkdown from "react-markdown";
+import { styled, keyframes } from "@mui/material/styles";
+import { Chart } from "react-chartjs-2";
 import {
-  Chart as ChartJS,
   CategoryScale,
   LinearScale,
+  LogarithmicScale,
   PointElement,
   LineElement,
   BarElement,
   Title as ChartTitle,
   Tooltip as ChartTooltip,
   Legend,
-} from 'chart.js';
+  Chart as ChartJS,
+} from "chart.js";
+import annotationPlugin from "chartjs-plugin-annotation";
 
+// Register chart.js components.
 ChartJS.register(
   CategoryScale,
   LinearScale,
+  LogarithmicScale,
   PointElement,
   LineElement,
   BarElement,
   ChartTitle,
   ChartTooltip,
-  Legend
+  Legend,
+  annotationPlugin
 );
 
+// ----------------------------------------------------------------
+// Helper: calculateSMA
+// Computes a simple moving average using a window size (15 days).
+// ----------------------------------------------------------------
+const calculateSMA = (data, windowSize) => {
+  const sma = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < windowSize) {
+      const avg =
+        data.slice(0, i + 1).reduce((acc, val) => acc + val, 0) / (i + 1);
+      sma.push(avg);
+    } else {
+      const windowSlice = data.slice(i - windowSize + 1, i + 1);
+      const sum = windowSlice.reduce((acc, val) => acc + val, 0);
+      sma.push(sum / windowSize);
+    }
+  }
+  return sma;
+};
+
+// ----------------------------------------------------------------
+// Animation & Styled Components
+// ----------------------------------------------------------------
 const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 `;
 
 const ChatContainer = styled(Box)(({ theme }) => ({
-  height: '80vh',
-  display: 'flex',
-  flexDirection: 'column',
-  backgroundColor: 'transparent',
-  color: '#fff',
+  height: "80vh",
+  display: "flex",
+  flexDirection: "column",
+  backgroundColor: "transparent",
+  color: "#fff",
   borderRadius: theme.shape.borderRadius,
   padding: theme.spacing(2),
-  overflow: 'hidden',
+  overflow: "hidden",
 }));
 
 const QuestionBox = styled(Box)(({ theme }) => ({
-  alignSelf: 'flex-end',
-  background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
-  color: '#fff',
-  borderRadius: '20px 20px 20px 0',
+  alignSelf: "flex-end",
+  background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)",
+  color: "#fff",
+  borderRadius: "20px 20px 20px 0",
   padding: theme.spacing(1.5),
   marginBottom: theme.spacing(1),
-  display: 'inline-block',
+  display: "inline-block",
   animation: `${fadeIn} 0.5s ease-out`,
 }));
 
 const AnswerText = styled(Box)(({ theme }) => ({
-  alignSelf: 'flex-start',
+  alignSelf: "flex-start",
   padding: theme.spacing(1.5),
   marginBottom: theme.spacing(2),
-  maxWidth: '100%',
+  maxWidth: "100%",
   lineHeight: 1.8,
   animation: `${fadeIn} 0.5s ease-out`,
-  '& a': {
-    color: '#2196f3 !important',
-    textDecoration: 'underline',
+  "& a": {
+    color: "#2196f3 !important",
+    textDecoration: "underline",
     fontWeight: 500,
-    transition: 'all 0.2s ease-in-out',
-    '&:hover': {
-      color: '#1976d2 !important',
-      textDecoration: 'none !important',
+    transition: "all 0.2s ease-in-out",
+    "&:hover": {
+      color: "#1976d2 !important",
+      textDecoration: "none !important",
     },
   },
 }));
@@ -104,138 +131,157 @@ const ChartContainerWrapper = styled(Box)(({ theme }) => ({
   marginBottom: theme.spacing(2),
 }));
 
-const ChartDisplay = ({ chartData, chartType, chartTitle }) => {
-  const adjustedData = JSON.parse(JSON.stringify(chartData));
-  if (chartType === 'bar') {
-    adjustedData.datasets.forEach((dataset) => {
-      delete dataset.tension;
-      dataset.fill = true;
-    });
-  }
-  const commonOptions = {
+// ----------------------------------------------------------------
+// Chart Components
+// ----------------------------------------------------------------
+
+// PriceChartDisplay: Renders the price chart.
+// (Its x-axis is hidden so that the common date labels appear only in the volume chart.)
+const PriceChartDisplay = ({ chartData, chartTitle, chartType }) => {
+  const options = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: {
-        position: 'top',
-        labels: { color: '#fff' },
-      },
+      legend: { position: "top", labels: { color: "#fff" } },
       title: {
         display: true,
         text: chartTitle,
-        color: '#fff',
+        color: "#fff",
         font: { size: 16 },
+      },
+      tooltip: {
+        callbacks: {
+          label: (context) => {
+            const label = context.dataset.label || "";
+            const value = context.parsed.y;
+            return `${label}: ${value}`;
+          },
+        },
+      },
+      zoom: {
+        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
+        pan: { enabled: true, mode: "x" },
       },
     },
     scales: {
       x: {
-        ticks: { color: '#fff' },
-        grid: { color: 'rgba(255,255,255,0.2)' },
-        title: {
-          display: true,
-          text:
-            (chartData.labels &&
-              chartData.labels[0] &&
-              (chartData.labels[0].includes('-') || chartData.labels[0].includes('/')))
-              ? 'Time'
-              : 'Symbol',
-          color: '#fff',
-        },
+        display: false, // Hide x-axis; dates will be shown in the volume chart.
+        ticks: { color: "#fff" },
+        grid: { color: "rgba(255,255,255,0.2)" },
       },
       y: {
-        ticks: { color: '#fff' },
-        grid: { color: 'rgba(255,255,255,0.2)' },
-        title: { display: true, text: 'Price (USD)', color: '#fff' },
+        // Use logarithmic scale when in bar chart mode
+        type: chartType === "bar" ? "logarithmic" : "linear",
+        ticks: {
+          color: "#fff",
+          // When using a logarithmic scale, format ticks nicely.
+          callback: function (value, index, values) {
+            if (chartType === "bar") {
+              return Number(value).toLocaleString();
+            }
+            return value;
+          },
+        },
+        grid: { color: "rgba(255,255,255,0.2)" },
+        title: { display: true, text: "Price (INR)", color: "#fff" },
       },
     },
   };
 
-  return chartType === 'line' ? (
-    <Line data={chartData} options={commonOptions} />
-  ) : (
-    <Bar data={adjustedData} options={commonOptions} />
-  );
+  return <Chart data={chartData} options={options} type={chartType} />;
 };
 
+
+// VolumeChartDisplay: Renders the volume chart as a bar chart.
+// The volume chart displays the common date labels and includes zoom and pan.
+const VolumeChartDisplay = ({ chartData }) => {
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: "top", labels: { color: "#fff" } },
+      title: { display: true, text: "Volume", color: "#fff", font: { size: 16 } },
+      tooltip: {
+        callbacks: {
+          label: (context) => {
+            const label = context.dataset.label || "";
+            const value = context.parsed.y;
+            return `${label}: ${value}`;
+          },
+        },
+      },
+      zoom: {
+        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
+        pan: { enabled: true, mode: "x" },
+      },
+    },
+    scales: {
+      x: {
+        display: true,
+        ticks: { color: "#fff" },
+        grid: { color: "rgba(255,255,255,0.2)" },
+        title: { display: true, text: "Time", color: "#fff" },
+      },
+      y: {
+        ticks: { color: "#fff" },
+        grid: { color: "rgba(255,255,255,0.2)" },
+        title: { display: true, text: "Volume", color: "#fff" },
+      },
+    },
+  };
+
+  return <Chart data={chartData} options={options} type="bar" />;
+};
+
+// ----------------------------------------------------------------
+// Markdown Components (for rendering chat messages)
+// ----------------------------------------------------------------
 const markdownComponents = {
-  p: ({ node, ...props }) => (
-    <p style={{ textAlign: 'justify', textIndent: '1em' }} {...props} />
-  ),
+  p: ({ node, ...props }) => <p style={{ textAlign: "justify", textIndent: "1em" }} {...props} />,
   h1: ({ node, ...props }) => (
-    <h1
-      style={{
-        margin: '1.2em 0 0.5em',
-        paddingBottom: '0.3em',
-        fontWeight: 'bold',
-        textAlign: 'justify',
-      }}
-      {...props}
-    />
+    <h1 style={{ margin: "1.2em 0 0.5em", paddingBottom: "0.3em", fontWeight: "bold", textAlign: "justify" }} {...props} />
   ),
   h2: ({ node, ...props }) => (
-    <h2
-      style={{
-        margin: '1.2em 0 0.5em',
-        paddingBottom: '0.3em',
-        fontWeight: 'bold',
-        textAlign: 'justify',
-      }}
-      {...props}
-    />
+    <h2 style={{ margin: "1.2em 0 0.5em", paddingBottom: "0.3em", fontWeight: "bold", textAlign: "justify" }} {...props} />
   ),
   h3: ({ node, ...props }) => (
-    <h3 style={{ margin: '1em 0 0.5em', fontWeight: 'bold', textAlign: 'justify' }} {...props} />
+    <h3 style={{ margin: "1em 0 0.5em", fontWeight: "bold", textAlign: "justify" }} {...props} />
   ),
-  li: ({ node, ordered, ...props }) => (
-    <li style={{ marginBottom: '0.5em', marginLeft: '1em', textAlign: 'justify' }} {...props} />
-  ),
+  li: ({ node, ...props }) => <li style={{ marginBottom: "0.5em", marginLeft: "1em", textAlign: "justify" }} {...props} />,
   blockquote: ({ node, ...props }) => (
     <blockquote
-      style={{
-        borderLeft: '4px solid #4bd8d8',
-        margin: '1em 0',
-        paddingLeft: '1em',
-        fontStyle: 'italic',
-        color: '#ccc',
-        textAlign: 'justify',
-      }}
+      style={{ borderLeft: "4px solid #4bd8d8", margin: "1em 0", paddingLeft: "1em", fontStyle: "italic", color: "#ccc", textAlign: "justify" }}
       {...props}
     />
   ),
-  a: ({ node, ...props }) => (
-    <a target="_blank" rel="noopener noreferrer" {...props} />
-  ),
+  a: ({ node, ...props }) => <a target="_blank" rel="noopener noreferrer" {...props} />,
 };
 
-// -------------------- Updated IconWrapper --------------------
-// This wrapper forces white icons by default and applies filled background styling.
+// ----------------------------------------------------------------
+// FeedbackButtons (unchanged)
+// ----------------------------------------------------------------
 const UpdatedIconWrapper = styled(IconButton, {
-  shouldForwardProp: (prop) => prop !== 'active',
+  shouldForwardProp: (prop) => prop !== "active",
 })(({ theme, active }) => ({
-  color: active ? theme.palette.primary.contrastText : '#fff',
-  backgroundColor: active ? theme.palette.primary.main : 'transparent',
-  '&:hover': {
-    backgroundColor: active ? theme.palette.primary.dark : 'rgba(255,255,255,0.1)',
+  color: active ? theme.palette.primary.contrastText : "#fff",
+  backgroundColor: active ? theme.palette.primary.main : "transparent",
+  "&:hover": {
+    backgroundColor: active ? theme.palette.primary.dark : "rgba(255,255,255,0.1)",
   },
 }));
 
-// -------------------- FeedbackButtons Component --------------------
 const FeedbackButtons = ({ messageId, content }) => {
   const [feedback, setFeedback] = useState(null);
-  const [reportText, setReportText] = useState('');
+  const [reportText, setReportText] = useState("");
   const [showReportPopup, setShowReportPopup] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const sendFeedback = async (action, reportMsg = '') => {
+  const sendFeedback = async (action, reportMsg = "") => {
     try {
-      await axios.put('/api/feedback', {
-        messageId,
-        action,
-        reportMessage: reportMsg,
-      });
+      await axios.put("/api/feedback", { messageId, action, reportMessage: reportMsg });
       setFeedback(action);
     } catch (error) {
-      console.error('Error updating feedback:', error);
+      console.error("Error updating feedback:", error);
     }
   };
 
@@ -245,86 +291,65 @@ const FeedbackButtons = ({ messageId, content }) => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy text: ', err);
+      console.error("Failed to copy text: ", err);
     }
   };
 
   return (
-    <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-      {/* Copy Button */}
+    <Box sx={{ mt: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
       <Tooltip title={copied ? "Copied!" : "Copy"}>
         <UpdatedIconWrapper onClick={handleCopy} size="small">
           {copied ? <Check fontSize="small" /> : <ContentCopy fontSize="small" />}
         </UpdatedIconWrapper>
       </Tooltip>
-
-      {/* Like Button */}
       <Tooltip title="Like">
         <UpdatedIconWrapper
-          onClick={() => sendFeedback('like')}
+          onClick={() => sendFeedback("like")}
           size="small"
-          active={feedback === 'like'}
-          sx={{ display: (feedback === 'dislike' || feedback === 'report') ? 'none' : 'inline-flex' }}
+          active={feedback === "like"}
+          sx={{ display: feedback === "dislike" || feedback === "report" ? "none" : "inline-flex" }}
         >
-          {feedback === 'like' ? (
-            <ThumbUpAlt fontSize="small" />
-          ) : (
-            <ThumbUpAltOutlined fontSize="small" />
-          )}
+          {feedback === "like" ? <ThumbUpAlt fontSize="small" /> : <ThumbUpAltOutlined fontSize="small" />}
         </UpdatedIconWrapper>
       </Tooltip>
-
-      {/* Dislike Button */}
       <Tooltip title="Dislike">
         <UpdatedIconWrapper
-          onClick={() => sendFeedback('dislike')}
+          onClick={() => sendFeedback("dislike")}
           size="small"
-          active={feedback === 'dislike'}
-          sx={{ display: (feedback === 'like' || feedback === 'report') ? 'none' : 'inline-flex' }}
+          active={feedback === "dislike"}
+          sx={{ display: feedback === "like" || feedback === "report" ? "none" : "inline-flex" }}
         >
-          {feedback === 'dislike' ? (
-            <ThumbDownAlt fontSize="small" />
-          ) : (
-            <ThumbDownAltOutlined fontSize="small" />
-          )}
+          {feedback === "dislike" ? <ThumbDownAlt fontSize="small" /> : <ThumbDownAltOutlined fontSize="small" />}
         </UpdatedIconWrapper>
       </Tooltip>
-
-      {/* Report Button */}
       <Tooltip title="Report">
         <UpdatedIconWrapper
           onClick={() => setShowReportPopup(true)}
           size="small"
-          active={feedback === 'report'}
-          sx={{ display: feedback === 'like' ? 'none' : 'inline-flex' }}
+          active={feedback === "report"}
+          sx={{ display: feedback === "like" ? "none" : "inline-flex" }}
         >
-          {feedback === 'report' ? (
-            <Flag fontSize="small" />
-          ) : (
-            <FlagOutlined fontSize="small" />
-          )}
+          {feedback === "report" ? <Flag fontSize="small" /> : <FlagOutlined fontSize="small" />}
         </UpdatedIconWrapper>
       </Tooltip>
-
-      {/* Report Dialog */}
       {showReportPopup && (
         <Box
           sx={{
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            backgroundColor: '#1e1e1e',
+            position: "fixed",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            backgroundColor: "#1e1e1e",
             p: 3,
             zIndex: 1000,
             borderRadius: 2,
-            boxShadow: '0px 4px 20px rgba(0,0,0,0.5)',
-            width: '90%',
-            maxWidth: '500px',
-            border: '1px solid #2196f3',
+            boxShadow: "0px 4px 20px rgba(0,0,0,0.5)",
+            width: "90%",
+            maxWidth: "500px",
+            border: "1px solid #2196f3",
           }}
         >
-          <Typography variant="subtitle1" sx={{ mb: 2, color: '#fff' }}>
+          <Typography variant="subtitle1" sx={{ mb: 2, color: "#fff" }}>
             Report Issue
           </Typography>
           <TextField
@@ -335,37 +360,30 @@ const FeedbackButtons = ({ messageId, content }) => {
             onChange={(e) => setReportText(e.target.value)}
             placeholder="Please describe the issue you encountered..."
             sx={{
-              '& .MuiInputBase-root': {
-                color: '#fff',
-                backgroundColor: 'rgba(255,255,255,0.1)',
+              "& .MuiInputBase-root": {
+                color: "#fff",
+                backgroundColor: "rgba(255,255,255,0.1)",
                 borderRadius: 1,
-                '&:hover fieldset': { borderColor: '#2196f3' },
-                '&.Mui-focused fieldset': { borderColor: '#2196f3' },
+                "&:hover fieldset": { borderColor: "#2196f3" },
+                "&.Mui-focused fieldset": { borderColor: "#2196f3" },
               },
             }}
           />
-          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+          <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end", gap: 1 }}>
             <Button
               variant="outlined"
               onClick={() => setShowReportPopup(false)}
-              sx={{
-                color: '#fff',
-                borderColor: '#444',
-                '&:hover': { borderColor: '#2196f3' },
-              }}
+              sx={{ color: "#fff", borderColor: "#444", "&:hover": { borderColor: "#2196f3" } }}
             >
               Cancel
             </Button>
             <Button
               variant="contained"
               onClick={() => {
-                sendFeedback('report', reportText);
+                sendFeedback("report", reportText);
                 setShowReportPopup(false);
               }}
-              sx={{
-                background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
-                '&:hover': { opacity: 0.9 },
-              }}
+              sx={{ background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)", "&:hover": { opacity: 0.9 } }}
             >
               Submit
             </Button>
@@ -376,109 +394,132 @@ const FeedbackButtons = ({ messageId, content }) => {
   );
 };
 
-// -------------------- End FeedbackButtons --------------------
-
+// ----------------------------------------------------------------
+// Chat Component
+// ----------------------------------------------------------------
 export default function Chat() {
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [chartType, setChartType] = useState('line');
+  // Allow toggling between "line" and "bar" chart types for the price chart.
+  const [chartType, setChartType] = useState("line");
   const messagesEndRef = useRef(null);
 
-  const defaultQuestions = ['top 2 stocks', 'price of infosys stock'];
+  // Dynamically import and register the zoom plugin (client side only)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      import("chartjs-plugin-zoom").then((module) => {
+        ChartJS.register(module.default);
+      });
+    }
+  }, []);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    console.log(messages);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     if (messages.length > 0) {
-      axios.post('/api/chatlog', {
-        userId: 'static-user-123',
-        messages: messages,
-      }).catch(error => {
-        console.error('Error updating chat log:', error);
-      });
+      axios
+        .post("/api/chatlog", {
+          userId: "static-user-123",
+          messages: messages,
+        })
+        .catch((error) => {
+          console.error("Error updating chat log:", error);
+        });
     }
   }, [messages]);
 
+  // ----------------------------------------------------------------
+  // sendMessage: processes user input, posts to API, and builds chart data.
+  // ----------------------------------------------------------------
   const sendMessage = async (messageContent) => {
     if (!messageContent.trim() || loading) return;
     setLoading(true);
-
-    // Generate a unique messageId for the user message.
-    const userMessage = { messageId: uuidv4(), role: 'user', content: messageContent };
+    const userMessage = { messageId: uuidv4(), role: "user", content: messageContent };
     setMessages((prev) => [...prev, userMessage]);
-
     try {
-      const { data } = await axios.post('/api/chat', {
-        messages: [...messages, userMessage],
-      });
-      // Ensure the assistant message includes a messageId.
+      const { data } = await axios.post("/api/chat", { messages: [...messages, userMessage] });
       const assistantMessage = { ...data, messageId: data.messageId || uuidv4() };
 
-      // Process rawData for chartData if available.
+      // Process rawData for chart display if available.
       if (assistantMessage.rawData && assistantMessage.rawData.length > 0) {
-        let chartData;
-        let chartTitle = '';
-
         if (assistantMessage.rawData[0].history && assistantMessage.rawData[0].history.length > 0) {
+          // Use the same date labels for both charts.
           const labels = assistantMessage.rawData[0].history.map((item) =>
             new Date(item.date).toLocaleDateString()
           );
-          const datasets = assistantMessage.rawData.map((asset, index) => ({
-            label: asset.symbol || asset.name || `Asset ${index + 1}`,
-            data: asset.history.map((item) => item.price),
-            fill: false,
-            borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
-            backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
-            tension: 0.1,
-          }));
-          chartData = { labels, datasets };
-          chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
-        } else if (assistantMessage.rawData[0].dates && assistantMessage.rawData[0].prices) {
-          if (assistantMessage.rawData[0].prices.length > 1) {
-            chartData = {
-              labels: assistantMessage.rawData[0].dates,
-              datasets: assistantMessage.rawData.map((item, index) => ({
-                label: item.symbol || 'Price',
-                data: item.prices,
+          const priceDatasets = [];
+          const volumeDatasets = [];
+          const numSymbols = assistantMessage.rawData.length;
+          assistantMessage.rawData.forEach((asset, index) => {
+            const priceData = asset.history.map((item) => item.price);
+            // Derive a professional color for this stock.
+            // Here we use HSL with lower saturation and a moderate lightness for a minimal look.
+            const priceColor = `hsl(${(index * 360) / numSymbols}, 50%, 60%)`;
+            if (numSymbols <= 2) {
+              // Include SMA if there are 2 or fewer stocks.
+              priceDatasets.push({
+                label: asset.symbol || asset.name || `Asset ${index + 1}`,
+                data: priceData,
                 fill: false,
-                borderColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
-                backgroundColor: `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`,
+                borderColor: priceColor,
+                backgroundColor: priceColor,
                 tension: 0.1,
-              })),
-            };
-            chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Price History`;
-          } else {
-            chartData = {
-              labels: assistantMessage.rawData.map((item, index) => item.symbol || `Asset ${index + 1}`),
-              datasets: [
-                {
-                  label: 'Current Price',
-                  data: assistantMessage.rawData.map((item) => item.prices[0]),
-                  backgroundColor: assistantMessage.rawData.map(
-                    (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
-                  ),
-                  borderColor: assistantMessage.rawData.map(
-                    (_, index) => `hsl(${(index * 360) / assistantMessage.rawData.length}, 70%, 50%)`
-                  ),
-                  borderWidth: 1,
-                },
-              ],
-            };
-            chartTitle = `${assistantMessage.rawData.map((item) => item.symbol).join(' & ')} Current Price`;
+              });
+              const sma15 = calculateSMA(priceData, 15);
+              priceDatasets.push({
+                label: `${asset.symbol || asset.name} 15-Day SMA`,
+                data: sma15,
+                fill: false,
+                borderColor: "darkgrey",
+                borderDash: [2, 2],
+                tension: 0.1,
+              });
+            } else {
+              // When more than 2 stocks, only include price.
+              priceDatasets.push({
+                label: asset.symbol || asset.name || `Asset ${index + 1}`,
+                data: priceData,
+                fill: false,
+                borderColor: priceColor,
+                backgroundColor: priceColor,
+                tension: 0.1,
+              });
+            }
+            // Build volume dataset if available.
+            if (asset.history[0].volume !== undefined) {
+              const volumeData = asset.history.map((item) => item.volume);
+              // Use the same color as the price, but with transparency for volume background.
+              volumeDatasets.push({
+                label: `${asset.symbol || asset.name} Volume`,
+                data: volumeData,
+                backgroundColor: `hsla(${(index * 360) / numSymbols}, 50%, 60%, 0.3)`,
+                borderColor: priceColor,
+                borderWidth: 1,
+                barPercentage: 0.6,
+                categoryPercentage: 0.8,
+                order: 0,
+              });
+            }
+          });
+          assistantMessage.chartDataPrice = { labels, datasets: priceDatasets };
+          if (volumeDatasets.length > 0) {
+            assistantMessage.chartDataVolume = { labels, datasets: volumeDatasets };
           }
+          assistantMessage.chartTitle =
+            assistantMessage.rawData.map((item) => item.symbol).join(" & ") +
+            " Price History";
         }
-        assistantMessage.chartData = chartData;
-        assistantMessage.chartTitle = chartTitle;
       }
-
-      // Append the assistant message (now with messageId) to messages.
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
       console.error("Client-side error:", error);
       setMessages((prev) => [
         ...prev,
-        { role: '⚠️', content: "I encountered an error. Please try again or ask about financial topics." },
+        {
+          role: "⚠️",
+          content:
+            "I encountered an error. Please try again or ask about financial topics.",
+        },
       ]);
     } finally {
       setLoading(false);
@@ -488,7 +529,7 @@ export default function Chat() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const messageToSend = input;
-    setInput('');
+    setInput("");
     await sendMessage(messageToSend);
   };
 
@@ -505,36 +546,35 @@ export default function Chat() {
   return (
     <Box
       sx={{
-        maxWidth: '800px',
-        mx: 'auto',
+        maxWidth: "800px",
+        mx: "auto",
         p: 2,
-        height: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        backgroundColor: 'transparent',
-        color: '#fff',
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        backgroundColor: "transparent",
+        color: "#fff",
       }}
     >
-      <Typography variant="h5" sx={{ mb: 3, fontWeight: 300, textAlign: 'center' }}>
+      <Typography variant="h5" sx={{ mb: 3, fontWeight: 300, textAlign: "center" }}>
         PROFIT FLOW
       </Typography>
-
       {messages.length === 0 && (
-        <Box sx={{ mb: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
-          {defaultQuestions.map((question, idx) => (
+        <Box sx={{ mb: 2, display: "flex", gap: 2, justifyContent: "center" }}>
+          {["top 2 stocks", "price of infosys stock"].map((question, idx) => (
             <Button
               key={idx}
               variant="contained"
               onClick={() => handleExampleClick(question)}
               sx={{
-                borderRadius: '20px',
-                background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
-                color: '#fff',
-                textTransform: 'none',
+                borderRadius: "20px",
+                background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)",
+                color: "#fff",
+                textTransform: "none",
                 fontWeight: 600,
-                boxShadow: '0px 3px 5px -1px rgba(0,0,0,0.2)',
-                '&:hover': {
-                  background: 'linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)',
+                boxShadow: "0px 3px 5px -1px rgba(0,0,0,0.2)",
+                "&:hover": {
+                  background: "linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)",
                 },
               }}
             >
@@ -543,61 +583,63 @@ export default function Chat() {
           ))}
         </Box>
       )}
-
       <ChatContainer>
         <Box
           sx={{
             flex: 1,
-            overflowY: 'auto',
+            overflowY: "auto",
             pb: 1,
-            scrollbarWidth: 'none',
-            '&::-webkit-scrollbar': { display: 'none' },
+            scrollbarWidth: "none",
+            "&::-webkit-scrollbar": { display: "none" },
           }}
         >
           {messages.map((msg, i) =>
-            msg.role === 'user' ? (
+            msg.role === "user" ? (
               <QuestionBox key={i}>
                 <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
               </QuestionBox>
             ) : (
               <AnswerText key={i}>
                 <ReactMarkdown components={markdownComponents}>
-                  {msg.content || 'Fetching real-time data...'}
+                  {msg.content || "Fetching real-time data..."}
                 </ReactMarkdown>
-                {msg.chartData && (
+                {msg.chartDataPrice && (
                   <ChartContainerWrapper>
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                    <Box sx={{ width: "100%", height: "300px" }}>
                       <ToggleButtonGroup
                         value={chartType}
                         exclusive
                         onChange={handleChartType}
                         size="small"
                         sx={{
-                          '& .MuiToggleButton-root': {
-                            color: '#fff',
-                            borderColor: '#444',
-                            backgroundColor: 'transparent',
+                          mb: 1,
+                          "& .MuiToggleButton-root": {
+                            color: "#fff",
+                            borderColor: "#444",
+                            backgroundColor: "transparent",
                           },
-                          '& .Mui-selected': {
-                            backgroundColor: '#444 !important',
-                            color: '#fff',
+                          "& .Mui-selected": {
+                            backgroundColor: "#444 !important",
+                            color: "#fff",
                           },
                         }}
                       >
                         <ToggleButton value="line">Line</ToggleButton>
                         <ToggleButton value="bar">Bar</ToggleButton>
                       </ToggleButtonGroup>
-                    </Box>
-                    <Box sx={{ width: '100%', height: '400px' }}>
-                      <ChartDisplay
-                        chartData={msg.chartData}
-                        chartType={chartType}
+                      <PriceChartDisplay
+                        chartData={msg.chartDataPrice}
                         chartTitle={msg.chartTitle}
+                        chartType={chartType}
                       />
                     </Box>
+                    {msg.chartDataVolume && (
+                      <Box sx={{ width: "100%", height: "250px", mt: 7 }}>
+                        <VolumeChartDisplay chartData={msg.chartDataVolume} />
+                      </Box>
+                    )}
                   </ChartContainerWrapper>
                 )}
-                {/* Render feedback buttons using the messageId */}
                 <FeedbackButtons messageId={msg.messageId} content={msg.content} />
               </AnswerText>
             )
@@ -606,23 +648,14 @@ export default function Chat() {
             <AnswerText>
               <Grid container spacing={1} alignItems="center">
                 <Grid item>
-                  <CircularProgress size={20} sx={{ color: '#fff' }} />
+                  <CircularProgress size={20} sx={{ color: "#fff" }} />
                 </Grid>
               </Grid>
             </AnswerText>
           )}
           <div ref={messagesEndRef} />
         </Box>
-
-        <Box
-          component="form"
-          onSubmit={handleSubmit}
-          sx={{
-            mt: 2,
-            display: 'flex',
-            gap: 1,
-          }}
-        >
+        <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2, display: "flex", gap: 1 }}>
           <TextField
             fullWidth
             variant="outlined"
@@ -631,15 +664,15 @@ export default function Chat() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask for stock/crypto price"
             sx={{
-              '& .MuiOutlinedInput-root': {
-                backgroundColor: '#1e1e1e',
-                borderRadius: '8px',
-                border: '1px solid #2196f3',
-                '& fieldset': { borderColor: '#2196f3' },
-                '&:hover fieldset': { borderColor: '#fff' },
-                '&.Mui-focused fieldset': { borderColor: '#fff' },
+              "& .MuiOutlinedInput-root": {
+                backgroundColor: "#1e1e1e",
+                borderRadius: "8px",
+                border: "1px solid #2196f3",
+                "& fieldset": { borderColor: "#2196f3" },
+                "&:hover fieldset": { borderColor: "#fff" },
+                "&.Mui-focused fieldset": { borderColor: "#fff" },
               },
-              input: { color: '#fff' },
+              input: { color: "#fff" },
             }}
             InputProps={{
               endAdornment: (
