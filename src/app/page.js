@@ -599,7 +599,7 @@ export default function Chat() {
     <OuterContainer>
       {/* Fixed Header */}
       <Header>
-        <Typography variant="h5" sx={{ mb:2, fontWeight: 300, textAlign: "center" }}>
+        <Typography variant="h5" sx={{ mb: 2, fontWeight: 300, textAlign: "center" }}>
           PROFIT FLOW
         </Typography>
         {messages.length === 0 && (
@@ -731,12 +731,12 @@ export default function Chat() {
                   "&.Mui-focused fieldset": { borderColor: "#fff" },
                 },
                 "& .MuiInputBase-input::placeholder": {
-                  color: "grey", // Placeholder text color
+                  color: "grey",
                   opacity: 1,
                 },
-                input: { color: "#fff" },
               }}
               InputProps={{
+                sx: { color: "#fff" }, // This directly sets the input text color to white
                 endAdornment: (
                   <IconButton type="submit" color="primary" disabled={loading}>
                     <SendIcon />
