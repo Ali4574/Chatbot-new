@@ -36,8 +36,6 @@ import {
   PointElement,
   LineElement,
   BarElement,
-  LineController,
-  BarController,
   Title as ChartTitle,
   Tooltip as ChartTooltip,
   Legend,
@@ -50,8 +48,6 @@ ChartJS.register(
   CategoryScale,
   LinearScale,
   LogarithmicScale,
-  LineController,
-  BarController,
   PointElement,
   LineElement,
   BarElement,
@@ -89,15 +85,63 @@ const fadeIn = keyframes`
   to { opacity: 1; transform: translateY(0); }
 `;
 
+// OuterContainer wraps the entire page.
+const OuterContainer = styled(Box)(({ theme }) => ({
+  maxWidth: "800px",
+  margin: "0 auto",
+  padding: theme.spacing(2),
+  minHeight: "100vh",
+  backgroundColor: "transparent",
+  color: "#fff",
+  position: "relative",
+}));
+
+// Header: fixed at the top with a set height.
+const Header = styled(Box)(({ theme }) => ({
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  height: "100px", // Fixed height for header
+  backgroundColor: "#0a0a0a",
+  zIndex: 1000,
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  alignItems: "center",
+  padding: theme.spacing(1),
+}));
+
+// InputArea: fixed at the bottom with a set height.
+const InputArea = styled(Box)(({ theme }) => ({
+  position: "fixed",
+  bottom: 0,
+  left: 0,
+  right: 0,
+  height: "80px", // Fixed height for input area
+  backgroundColor: "#0a0a0a",
+  zIndex: 1000,
+  display: "flex",
+  alignItems: "center",
+  padding: theme.spacing(1),
+}));
+
+// MessageArea: scrollable area that fills the space between header and input.
+// The top and bottom margins match the header and input heights.
+const MessageArea = styled(Box)(({ theme }) => ({
+  marginTop: "80px",
+  marginBottom: "80px",
+  overflowY: "auto",
+}));
+
+// ChatContainer for messages and charts.
 const ChatContainer = styled(Box)(({ theme }) => ({
-  height: "80vh",
   display: "flex",
   flexDirection: "column",
   backgroundColor: "transparent",
   color: "#fff",
   borderRadius: theme.shape.borderRadius,
   padding: theme.spacing(2),
-  overflow: "hidden",
 }));
 
 const QuestionBox = styled(Box)(({ theme }) => ({
@@ -140,7 +184,7 @@ const ChartContainerWrapper = styled(Box)(({ theme }) => ({
 // ----------------------------------------------------------------
 
 // PriceChartDisplay: Renders the price chart.
-// (Its x-axis is hidden so that the common date labels appear only in the volume chart.)
+// Its x-axis is hidden so that the common date labels appear only in the volume chart.
 const PriceChartDisplay = ({ chartData, chartTitle, chartType }) => {
   const options = {
     responsive: true,
@@ -174,12 +218,11 @@ const PriceChartDisplay = ({ chartData, chartTitle, chartType }) => {
         grid: { color: "rgba(255,255,255,0.2)" },
       },
       y: {
-        // Use logarithmic scale when in bar chart mode
+        // Use logarithmic scale when in bar chart mode.
         type: chartType === "bar" ? "logarithmic" : "linear",
         ticks: {
           color: "#fff",
-          // When using a logarithmic scale, format ticks nicely.
-          callback: function (value, index, values) {
+          callback: function (value) {
             if (chartType === "bar") {
               return Number(value).toLocaleString();
             }
@@ -195,7 +238,6 @@ const PriceChartDisplay = ({ chartData, chartTitle, chartType }) => {
   return <Chart data={chartData} options={options} type={chartType} />;
 };
 
-
 // VolumeChartDisplay: Renders the volume chart as a bar chart.
 // The volume chart displays the common date labels and includes zoom and pan.
 const VolumeChartDisplay = ({ chartData }) => {
@@ -204,7 +246,12 @@ const VolumeChartDisplay = ({ chartData }) => {
     maintainAspectRatio: false,
     plugins: {
       legend: { position: "top", labels: { color: "#fff" } },
-      title: { display: true, text: "Volume", color: "#fff", font: { size: 16 } },
+      title: {
+        display: true,
+        text: "Volume",
+        color: "#fff",
+        font: { size: 16 },
+      },
       tooltip: {
         callbacks: {
           label: (context) => {
@@ -457,7 +504,6 @@ export default function Chat() {
           assistantMessage.rawData.forEach((asset, index) => {
             const priceData = asset.history.map((item) => item.price);
             // Derive a professional color for this stock.
-            // Here we use HSL with lower saturation and a moderate lightness for a minimal look.
             const priceColor = `hsl(${(index * 360) / numSymbols}, 50%, 60%)`;
             if (numSymbols <= 2) {
               // Include SMA if there are 2 or fewer stocks.
@@ -479,7 +525,6 @@ export default function Chat() {
                 tension: 0.1,
               });
             } else {
-              // When more than 2 stocks, only include price.
               priceDatasets.push({
                 label: asset.symbol || asset.name || `Asset ${index + 1}`,
                 data: priceData,
@@ -492,7 +537,6 @@ export default function Chat() {
             // Build volume dataset if available.
             if (asset.history[0].volume !== undefined) {
               const volumeData = asset.history.map((item) => item.volume);
-              // Use the same color as the price, but with transparency for volume background.
               volumeDatasets.push({
                 label: `${asset.symbol || asset.name} Volume`,
                 data: volumeData,
@@ -548,146 +592,157 @@ export default function Chat() {
   };
 
   return (
-    <Box
-      sx={{
-        maxWidth: "800px",
-        mx: "auto",
-        p: 2,
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        backgroundColor: "transparent",
-        color: "#fff",
-      }}
-    >
-      <Typography variant="h5" sx={{ mb: 3, fontWeight: 300, textAlign: "center" }}>
-        PROFIT FLOW
-      </Typography>
-      {messages.length === 0 && (
-        <Box sx={{ mb: 2, display: "flex", gap: 2, justifyContent: "center" }}>
-          {["top 2 stocks", "price of infosys stock"].map((question, idx) => (
-            <Button
-              key={idx}
-              variant="contained"
-              onClick={() => handleExampleClick(question)}
-              sx={{
-                borderRadius: "20px",
-                background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)",
-                color: "#fff",
-                textTransform: "none",
-                fontWeight: 600,
-                boxShadow: "0px 3px 5px -1px rgba(0,0,0,0.2)",
-                "&:hover": {
-                  background: "linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)",
-                },
-              }}
-            >
-              {question}
-            </Button>
-          ))}
-        </Box>
-      )}
-      <ChatContainer>
-        <Box
-          sx={{
-            flex: 1,
-            overflowY: "auto",
-            pb: 1,
-            scrollbarWidth: "none",
-            "&::-webkit-scrollbar": { display: "none" },
-          }}
-        >
-          {messages.map((msg, i) =>
-            msg.role === "user" ? (
-              <QuestionBox key={i}>
-                <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
-              </QuestionBox>
-            ) : (
-              <AnswerText key={i}>
-                <ReactMarkdown components={markdownComponents}>
-                  {msg.content || "Fetching real-time data..."}
-                </ReactMarkdown>
-                {msg.chartDataPrice && (
-                  <ChartContainerWrapper>
-                    <Box sx={{ width: "100%", height: "300px" }}>
-                      <ToggleButtonGroup
-                        value={chartType}
-                        exclusive
-                        onChange={handleChartType}
-                        size="small"
-                        sx={{
-                          mb: 1,
-                          "& .MuiToggleButton-root": {
-                            color: "#fff",
-                            borderColor: "#444",
-                            backgroundColor: "transparent",
-                          },
-                          "& .Mui-selected": {
-                            backgroundColor: "#444 !important",
-                            color: "#fff",
-                          },
-                        }}
-                      >
-                        <ToggleButton value="line">Line</ToggleButton>
-                        <ToggleButton value="bar">Bar</ToggleButton>
-                      </ToggleButtonGroup>
-                      <PriceChartDisplay
-                        chartData={msg.chartDataPrice}
-                        chartTitle={msg.chartTitle}
-                        chartType={chartType}
-                      />
-                    </Box>
-                    {msg.chartDataVolume && (
-                      <Box sx={{ width: "100%", height: "250px", mt: 7 }}>
-                        <VolumeChartDisplay chartData={msg.chartDataVolume} />
-                      </Box>
-                    )}
-                  </ChartContainerWrapper>
-                )}
-                <FeedbackButtons messageId={msg.messageId} content={msg.content} />
-              </AnswerText>
-            )
-          )}
-          {loading && (
-            <AnswerText>
-              <Grid container spacing={1} alignItems="center">
-                <Grid item>
-                  <CircularProgress size={20} sx={{ color: "#fff" }} />
-                </Grid>
-              </Grid>
-            </AnswerText>
-          )}
-          <div ref={messagesEndRef} />
-        </Box>
-        <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2, display: "flex", gap: 1 }}>
-          <TextField
-            fullWidth
-            variant="outlined"
-            size="small"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask for stock/crypto price"
+    <OuterContainer>
+      {/* Fixed Header */}
+      <Header>
+        <Typography variant="h5" sx={{ mb:2, fontWeight: 300, textAlign: "center" }}>
+          PROFIT FLOW
+        </Typography>
+        {messages.length === 0 && (
+          <Box sx={{ mb: 1, display: "flex", gap: 2, justifyContent: "center" }}>
+            {["top 2 stocks", "price of infosys stock"].map((question, idx) => (
+              <Button
+                key={idx}
+                variant="contained"
+                onClick={() => handleExampleClick(question)}
+                sx={{
+                  borderRadius: "20px",
+                  background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)",
+                  color: "#fff",
+                  textTransform: "none",
+                  fontWeight: 600,
+                  boxShadow: "0px 3px 5px -1px rgba(0,0,0,0.2)",
+                  "&:hover": {
+                    background: "linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)",
+                  },
+                }}
+              >
+                {question}
+              </Button>
+            ))}
+          </Box>
+        )}
+      </Header>
+
+      {/* Scrollable Message Area */}
+      <MessageArea>
+        <ChatContainer>
+          <Box
             sx={{
-              "& .MuiOutlinedInput-root": {
-                backgroundColor: "#1e1e1e",
-                borderRadius: "8px",
-                border: "1px solid #2196f3",
-                "& fieldset": { borderColor: "#2196f3" },
-                "&:hover fieldset": { borderColor: "#fff" },
-                "&.Mui-focused fieldset": { borderColor: "#fff" },
-              },
-              input: { color: "#fff" },
+              flex: 1,
+              overflowY: "auto",
+              pb: 1,
+              scrollbarWidth: "none",
+              "&::-webkit-scrollbar": { display: "none" },
             }}
-            InputProps={{
-              endAdornment: (
-                <IconButton type="submit" color="primary" disabled={loading}>
-                  <SendIcon />
-                </IconButton>
-              ),
-            }}
-          />
+          >
+            {messages.map((msg, i) =>
+              msg.role === "user" ? (
+                <QuestionBox key={i}>
+                  <ReactMarkdown components={markdownComponents}>
+                    {msg.content}
+                  </ReactMarkdown>
+                </QuestionBox>
+              ) : (
+                <AnswerText key={i}>
+                  <ReactMarkdown components={markdownComponents}>
+                    {msg.content || "Fetching real-time data..."}
+                  </ReactMarkdown>
+                  {msg.chartDataPrice && (
+                    <ChartContainerWrapper>
+                      <Box sx={{ width: "100%", height: "300px" }}>
+                        <ToggleButtonGroup
+                          value={chartType}
+                          exclusive
+                          onChange={handleChartType}
+                          size="small"
+                          sx={{
+                            mb: 1,
+                            "& .MuiToggleButton-root": {
+                              color: "#fff",
+                              borderColor: "#444",
+                              backgroundColor: "transparent",
+                            },
+                            "& .Mui-selected": {
+                              backgroundColor: "#444 !important",
+                              color: "#fff",
+                            },
+                          }}
+                        >
+                          <ToggleButton value="line">Line</ToggleButton>
+                          <ToggleButton value="bar">Bar</ToggleButton>
+                        </ToggleButtonGroup>
+                        <PriceChartDisplay
+                          chartData={msg.chartDataPrice}
+                          chartTitle={msg.chartTitle}
+                          chartType={chartType}
+                        />
+                      </Box>
+                      {msg.chartDataVolume && (
+                        <Box sx={{ width: "100%", height: "250px", mt: 7 }}>
+                          <VolumeChartDisplay chartData={msg.chartDataVolume} />
+                        </Box>
+                      )}
+                    </ChartContainerWrapper>
+                  )}
+                  <FeedbackButtons messageId={msg.messageId} content={msg.content} />
+                </AnswerText>
+              )
+            )}
+            {loading && (
+              <AnswerText>
+                <Grid container spacing={1} alignItems="center">
+                  <Grid item>
+                    <CircularProgress size={20} sx={{ color: "#fff" }} />
+                  </Grid>
+                </Grid>
+              </AnswerText>
+            )}
+            <div ref={messagesEndRef} />
+          </Box>
+        </ChatContainer>
+      </MessageArea>
+
+      {/* Fixed Input Area */}
+      <InputArea>
+        {/* Wrap the form inside a container to restrict width */}
+        <Box sx={{ maxWidth: "800px", mx: "auto", width: "100%" }}>
+          <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", gap: 1 }}>
+            <TextField
+              fullWidth
+              variant="outlined"
+              size="small"
+              multiline
+              maxRows={3}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask for stock/crypto price"
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  backgroundColor: "#1e1e1e",
+                  borderRadius: "8px",
+                  border: "1px solid #2196f3",
+                  "& fieldset": { borderColor: "#2196f3" },
+                  "&:hover fieldset": { borderColor: "#fff" },
+                  "&.Mui-focused fieldset": { borderColor: "#fff" },
+                },
+                "& .MuiInputBase-input::placeholder": {
+                  color: "grey", // Placeholder text color
+                  opacity: 1,
+                },
+                input: { color: "#fff" },
+              }}
+              InputProps={{
+                endAdornment: (
+                  <IconButton type="submit" color="primary" disabled={loading}>
+                    <SendIcon />
+                  </IconButton>
+                ),
+              }}
+            />
+          </Box>
         </Box>
-      </ChatContainer>
-    </Box>
+      </InputArea>
+    </OuterContainer>
   );
 }
