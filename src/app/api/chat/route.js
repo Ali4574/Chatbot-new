@@ -148,9 +148,10 @@ const functions = [
     parameters: {
       type: 'object',
       properties: {
-        symbol: {
-          type: 'string',
-          description: 'Stock symbol for which to fetch trade information.',
+        symbols: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of stock symbols for which to fetch trade information.',
         },
       },
       required: ['symbol'],
@@ -162,9 +163,10 @@ const functions = [
     parameters: {
       type: 'object',
       properties: {
-        symbol: {
-          type: 'string',
-          description: 'Stock symbol for which to fetch F&O data.',
+        symbols: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of stock symbols for which to fetch F&O data.',
         },
       },
       required: ['symbol'],
@@ -584,106 +586,115 @@ async function getMarketStatus() {
 }
 
 /**
- * New Function: Fetch trade information for a specific equity using NSELive.
+ * New Function: Fetch trade information for one or more equities using NSELive.
  */
-async function getTradeInfo({ symbol }) {
+async function getTradeInfo({ symbols }) {
   try {
-    const info = await nseLive.tradeInfo(symbol);
-    return info;
+    // Validate that symbols is an array
+    if (!symbols || !Array.isArray(symbols)) {
+      throw new Error("The 'symbols' parameter must be an array of strings.");
+    }
+
+    // Create an array of promises for each symbol
+    const tradeInfoPromises = symbols.map(async (symbol) => {
+      const info = await nseLive.tradeInfo(symbol);
+      return { symbol, info };
+    });
+
+    // Wait for all promises to resolve
+    const tradeInfos = await Promise.all(tradeInfoPromises);
+    return tradeInfos;
   } catch (error) {
-    console.error(`Error fetching trade info for ${symbol}:`, error);
+    console.error(`Error fetching trade info:`, error);
     return { error: "Unable to fetch trade info" };
   }
 }
 
+
 /**
  * New Function: Fetch live F&O data for a specific equity using NSELive.
  */
-async function getStockQuoteFNO({ symbol, optionsRequiredMonth }) {
+async function getStockQuoteFNO({ symbols, optionsRequiredMonth }) {
   try {
-    // Fetch raw data from the NSELive API
-    const rawData = await nseLive.stockQuoteFNO(symbol);
-
-    // The underlying asset's current value (common for both futures and options)
-    const underlyingValue = rawData.underlyingValue;
-
-    // Initialize arrays to hold processed futures and options data
-    const futuresData = [];
-    const optionsData = [];
-
-    // Process each contract in the raw data
-    if (Array.isArray(rawData.stocks)) {
-      rawData.stocks.forEach((stock) => {
-        const meta = stock.metadata;
-        const orderBook = stock.marketDeptOrderBook;
-        if (!meta || !orderBook) return; // skip if essential data is missing
-
-        // Prepare a base object with fields common to both types:
-        const commonFields = {
-          lastPrice: meta.lastPrice,
-          change: meta.change,
-          pChange: meta.pChange,
-          contractsTraded: meta.numberOfContractsTraded,
-          totalTurnover: meta.totalTurnover,
-          openInterest: orderBook.tradeInfo ? orderBook.tradeInfo.openInterest : undefined,
-          changeInOpenInterest: orderBook.tradeInfo ? orderBook.tradeInfo.changeinOpenInterest : undefined,
-          pChangeInOpenInterest: orderBook.tradeInfo ? orderBook.tradeInfo.pchangeinOpenInterest : undefined,
-          orderBook: {
-            bid: orderBook.bid,
-            ask: orderBook.ask,
-          }
-        };
-
-        // Process Futures: Critical fields include underlying value, price, volume, OI, order book, and volatility measures.
-        if (meta.instrumentType === 'Stock Futures') {
-          futuresData.push({
-            ...commonFields,
-            volatility: {
-              daily: orderBook.otherInfo ? orderBook.otherInfo.dailyvolatility : undefined,
-              annualised: orderBook.otherInfo ? orderBook.otherInfo.annualisedVolatility : undefined,
-              // For futures the implied volatility might be absent or zero
-              implied: orderBook.otherInfo ? orderBook.otherInfo.impliedVolatility : undefined
+    // Create an array of promises for each symbol
+    const dataPromises = symbols.map(async (symbol) => {
+      const rawData = await nseLive.stockQuoteFNO(symbol);
+      // Process the rawData as done before:
+      const underlyingValue = rawData.underlyingValue;
+      const futuresData = [];
+      const optionsData = [];
+      
+      if (Array.isArray(rawData.stocks)) {
+        rawData.stocks.forEach((stock) => {
+          const meta = stock.metadata;
+          const orderBook = stock.marketDeptOrderBook;
+          if (!meta || !orderBook) return; // Skip if essential data is missing
+  
+          const commonFields = {
+            lastPrice: meta.lastPrice,
+            change: meta.change,
+            pChange: meta.pChange,
+            contractsTraded: meta.numberOfContractsTraded,
+            totalTurnover: meta.totalTurnover,
+            openInterest: orderBook.tradeInfo ? orderBook.tradeInfo.openInterest : undefined,
+            changeInOpenInterest: orderBook.tradeInfo ? orderBook.tradeInfo.changeinOpenInterest : undefined,
+            pChangeInOpenInterest: orderBook.tradeInfo ? orderBook.tradeInfo.pchangeinOpenInterest : undefined,
+            orderBook: {
+              bid: orderBook.bid,
+              ask: orderBook.ask,
             }
-          });
-        }
-        // Process Options: Critical fields include contract details plus pricing, OI, order book, and implied volatility.
-        else if (meta.instrumentType === 'Stock Options') {
-          // If a required month is specified, filter by the expiry month.
-          if (optionsRequiredMonth && meta.expiryDate) {
-            // Assume expiryDate is in "DD-MMM-YYYY" format (e.g., "27-Feb-2025")
-            const parts = meta.expiryDate.split('-');
-            if (parts.length < 2) return;
-            const monthStr = parts[1];
-            if (monthStr.toLowerCase() !== optionsRequiredMonth.toLowerCase()) return;
+          };
+  
+          if (meta.instrumentType === 'Stock Futures') {
+            futuresData.push({
+              ...commonFields,
+              volatility: {
+                daily: orderBook.otherInfo ? orderBook.otherInfo.dailyvolatility : undefined,
+                annualised: orderBook.otherInfo ? orderBook.otherInfo.annualisedVolatility : undefined,
+                implied: orderBook.otherInfo ? orderBook.otherInfo.impliedVolatility : undefined
+              }
+            });
+          } else if (meta.instrumentType === 'Stock Options') {
+            if (optionsRequiredMonth && meta.expiryDate) {
+              const parts = meta.expiryDate.split('-');
+              if (parts.length < 2) return;
+              const monthStr = parts[1];
+              if (monthStr.toLowerCase() !== optionsRequiredMonth.toLowerCase()) return;
+            }
+            optionsData.push({
+              optionType: meta.optionType,
+              strikePrice: meta.strikePrice,
+              expiryDate: meta.expiryDate,
+              identifier: meta.identifier,
+              ...commonFields,
+              impliedVolatility: orderBook.otherInfo ? orderBook.otherInfo.impliedVolatility : undefined
+            });
           }
-          optionsData.push({
-            optionType: meta.optionType,         // "Call" or "Put"
-            strikePrice: meta.strikePrice,
-            expiryDate: meta.expiryDate,
-            identifier: meta.identifier,
-            ...commonFields,
-            impliedVolatility: orderBook.otherInfo ? orderBook.otherInfo.impliedVolatility : undefined
-          });
-        }
-      });
-    }
-
-    // Limit options data to the first three contracts (if more than three are returned)
-    const limitedOptionsData = optionsData.slice(0, 3);
-    // Return an object containing the underlying value, futures data, and options data.
-    return {
-      underlyingValue,
-      futuresData,
-      optionsData: limitedOptionsData,
-      fut_timestamp: rawData.fut_timestamp,
-      opt_timestamp: rawData.opt_timestamp,
-      info: rawData.info
-    };
+        });
+      }
+  
+      const limitedOptionsData = optionsData.slice(0, 3);
+  
+      return {
+        symbol,
+        underlyingValue,
+        futuresData,
+        optionsData: limitedOptionsData,
+        fut_timestamp: rawData.fut_timestamp,
+        opt_timestamp: rawData.opt_timestamp,
+        info: rawData.info
+      };
+    });
+  
+    // Wait for all the promises to resolve
+    const allData = await Promise.all(dataPromises);
+    return allData;
   } catch (error) {
-    console.error(`Error fetching critical F&O data for ${symbol}:`, error);
+    console.error("Error fetching critical F&O data for multiple symbols:", error);
     return { error: "Unable to fetch F&O data" };
   }
 }
+
 
 
 /**

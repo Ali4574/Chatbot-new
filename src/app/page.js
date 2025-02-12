@@ -720,6 +720,12 @@ export default function Chat() {
               maxRows={3}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }
+              }}
               placeholder="Ask for stock/crypto price"
               sx={{
                 "& .MuiOutlinedInput-root": {
