@@ -8,8 +8,6 @@ import dotenv from 'dotenv';
 import yahooFinance from 'yahoo-finance2';
 import UserChatLog from '@/src/models/UserChatLog';
 import axios from 'axios';
-import { v4 as uuidv4 } from 'uuid';
-import fs from 'fs';
 import { NSELive, NSEArchive } from 'nse-api-package'; // New: Import NSELive and NSEArchive
 
 dotenv.config({ path: '.env.local' });
@@ -672,23 +670,6 @@ async function getStockQuoteFNO({ symbol, optionsRequiredMonth }) {
 
     // Limit options data to the first three contracts (if more than three are returned)
     const limitedOptionsData = optionsData.slice(0, 3);
-
-    // Optionally, log the processed data for record-keeping or debugging.
-    const logEntry = [
-      `Timestamp: ${new Date().toISOString()}`,
-      `Symbol: ${symbol}`,
-      `Underlying Value: ${underlyingValue}`,
-      `Futures Data: ${JSON.stringify(futuresData, null, 2)}`,
-      `Options Data (limited to 3): ${JSON.stringify(limitedOptionsData, null, 2)}`,
-      '-------------------------\n'
-    ].join('\n');
-
-    fs.appendFile('fno_data.log', logEntry, (err) => {
-      if (err) {
-        console.error('Error writing F&O data to file:', err);
-      }
-    });
-
     // Return an object containing the underlying value, futures data, and options data.
     return {
       underlyingValue,
