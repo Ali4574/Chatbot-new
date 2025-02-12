@@ -568,7 +568,7 @@ export default function Chat() {
       setMessages((prev) => [
         ...prev,
         {
-          role: "⚠️",
+          role: "assistant",
           content:
             "I encountered an error. Please try again or ask about financial topics.",
         },

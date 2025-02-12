@@ -9,6 +9,7 @@ import yahooFinance from 'yahoo-finance2';
 import UserChatLog from '@/src/models/UserChatLog';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs';
 import { NSELive, NSEArchive } from 'nse-api-package'; // New: Import NSELive and NSEArchive
 
 dotenv.config({ path: '.env.local' });
@@ -189,42 +190,42 @@ const functions = [
       required: ['symbol'],
     },
   },
-  {
-    name: 'get_market_turnover',
-    description: 'Fetch market turnover data for a given symbol using NSELive.',
-    parameters: {
-      type: 'object',
-      properties: {
-        symbol: {
-          type: 'string',
-          description: 'Stock symbol for which to fetch market turnover data.',
-        },
-      },
-      required: ['symbol'],
-    },
-  },
-  {
-    name: 'get_equity_derivative_turnover',
-    description: 'Fetch equity derivative turnover data for a given symbol using NSELive.',
-    parameters: {
-      type: 'object',
-      properties: {
-        symbol: {
-          type: 'string',
-          description: 'Stock symbol for which to fetch equity derivative turnover data.',
-        },
-      },
-      required: ['symbol'],
-    },
-  },
-  {
-    name: 'get_all_indices',
-    description: 'Fetch data of all indices using NSELive.',
-    parameters: {
-      type: 'object',
-      properties: {}
-    },
-  },
+  // {
+  //   name: 'get_market_turnover',
+  //   description: 'Fetch market turnover data for a given symbol using NSELive.',
+  //   parameters: {
+  //     type: 'object',
+  //     properties: {
+  //       symbol: {
+  //         type: 'string',
+  //         description: 'Stock symbol for which to fetch market turnover data.',
+  //       },
+  //     },
+  //     required: ['symbol'],
+  //   },
+  // },
+  // {
+  //   name: 'get_equity_derivative_turnover',
+  //   description: 'Fetch equity derivative turnover data for a given symbol using NSELive.',
+  //   parameters: {
+  //     type: 'object',
+  //     properties: {
+  //       symbol: {
+  //         type: 'string',
+  //         description: 'Stock symbol for which to fetch equity derivative turnover data.',
+  //       },
+  //     },
+  //     required: ['symbol'],
+  //   },
+  // },
+  // {
+  //   name: 'get_all_indices',
+  //   description: 'Fetch data of all indices using NSELive.',
+  //   parameters: {
+  //     type: 'object',
+  //     properties: {}
+  //   },
+  // },
   {
     name: 'get_live_index',
     description: 'Fetch realtime index data for a given symbol using NSELive.',
@@ -239,20 +240,20 @@ const functions = [
       required: ['symbol'],
     },
   },
-  {
-    name: 'get_index_option_chain',
-    description: 'Fetch the index option chain for a given symbol using NSELive.',
-    parameters: {
-      type: 'object',
-      properties: {
-        symbol: {
-          type: 'string',
-          description: 'Index symbol for which to fetch option chain data.',
-        },
-      },
-      required: ['symbol'],
-    },
-  },
+  // {
+  //   name: 'get_index_option_chain',
+  //   description: 'Fetch the index option chain for a given symbol using NSELive.',
+  //   parameters: {
+  //     type: 'object',
+  //     properties: {
+  //       symbol: {
+  //         type: 'string',
+  //         description: 'Index symbol for which to fetch option chain data.',
+  //       },
+  //     },
+  //     required: [],
+  //   },
+  // },
 ];
 
 
@@ -600,15 +601,109 @@ async function getTradeInfo({ symbol }) {
 /**
  * New Function: Fetch live F&O data for a specific equity using NSELive.
  */
-async function getStockQuoteFNO({ symbol }) {
+async function getStockQuoteFNO({ symbol, optionsRequiredMonth }) {
   try {
-    const data = await nseLive.stockQuoteFNO(symbol);
-    return data;
+    // Fetch raw data from the NSELive API
+    const rawData = await nseLive.stockQuoteFNO(symbol);
+
+    // The underlying asset's current value (common for both futures and options)
+    const underlyingValue = rawData.underlyingValue;
+
+    // Initialize arrays to hold processed futures and options data
+    const futuresData = [];
+    const optionsData = [];
+
+    // Process each contract in the raw data
+    if (Array.isArray(rawData.stocks)) {
+      rawData.stocks.forEach((stock) => {
+        const meta = stock.metadata;
+        const orderBook = stock.marketDeptOrderBook;
+        if (!meta || !orderBook) return; // skip if essential data is missing
+
+        // Prepare a base object with fields common to both types:
+        const commonFields = {
+          lastPrice: meta.lastPrice,
+          change: meta.change,
+          pChange: meta.pChange,
+          contractsTraded: meta.numberOfContractsTraded,
+          totalTurnover: meta.totalTurnover,
+          openInterest: orderBook.tradeInfo ? orderBook.tradeInfo.openInterest : undefined,
+          changeInOpenInterest: orderBook.tradeInfo ? orderBook.tradeInfo.changeinOpenInterest : undefined,
+          pChangeInOpenInterest: orderBook.tradeInfo ? orderBook.tradeInfo.pchangeinOpenInterest : undefined,
+          orderBook: {
+            bid: orderBook.bid,
+            ask: orderBook.ask,
+          }
+        };
+
+        // Process Futures: Critical fields include underlying value, price, volume, OI, order book, and volatility measures.
+        if (meta.instrumentType === 'Stock Futures') {
+          futuresData.push({
+            ...commonFields,
+            volatility: {
+              daily: orderBook.otherInfo ? orderBook.otherInfo.dailyvolatility : undefined,
+              annualised: orderBook.otherInfo ? orderBook.otherInfo.annualisedVolatility : undefined,
+              // For futures the implied volatility might be absent or zero
+              implied: orderBook.otherInfo ? orderBook.otherInfo.impliedVolatility : undefined
+            }
+          });
+        }
+        // Process Options: Critical fields include contract details plus pricing, OI, order book, and implied volatility.
+        else if (meta.instrumentType === 'Stock Options') {
+          // If a required month is specified, filter by the expiry month.
+          if (optionsRequiredMonth && meta.expiryDate) {
+            // Assume expiryDate is in "DD-MMM-YYYY" format (e.g., "27-Feb-2025")
+            const parts = meta.expiryDate.split('-');
+            if (parts.length < 2) return;
+            const monthStr = parts[1];
+            if (monthStr.toLowerCase() !== optionsRequiredMonth.toLowerCase()) return;
+          }
+          optionsData.push({
+            optionType: meta.optionType,         // "Call" or "Put"
+            strikePrice: meta.strikePrice,
+            expiryDate: meta.expiryDate,
+            identifier: meta.identifier,
+            ...commonFields,
+            impliedVolatility: orderBook.otherInfo ? orderBook.otherInfo.impliedVolatility : undefined
+          });
+        }
+      });
+    }
+
+    // Limit options data to the first three contracts (if more than three are returned)
+    const limitedOptionsData = optionsData.slice(0, 3);
+
+    // Optionally, log the processed data for record-keeping or debugging.
+    const logEntry = [
+      `Timestamp: ${new Date().toISOString()}`,
+      `Symbol: ${symbol}`,
+      `Underlying Value: ${underlyingValue}`,
+      `Futures Data: ${JSON.stringify(futuresData, null, 2)}`,
+      `Options Data (limited to 3): ${JSON.stringify(limitedOptionsData, null, 2)}`,
+      '-------------------------\n'
+    ].join('\n');
+
+    fs.appendFile('fno_data.log', logEntry, (err) => {
+      if (err) {
+        console.error('Error writing F&O data to file:', err);
+      }
+    });
+
+    // Return an object containing the underlying value, futures data, and options data.
+    return {
+      underlyingValue,
+      futuresData,
+      optionsData: limitedOptionsData,
+      fut_timestamp: rawData.fut_timestamp,
+      opt_timestamp: rawData.opt_timestamp,
+      info: rawData.info
+    };
   } catch (error) {
-    console.error(`Error fetching F&O data for ${symbol}:`, error);
+    console.error(`Error fetching critical F&O data for ${symbol}:`, error);
     return { error: "Unable to fetch F&O data" };
   }
 }
+
 
 /**
  * New Function: Fetch chart data for a given symbol using NSELive.
@@ -623,44 +718,44 @@ async function getChartData({ symbol, includeAdditionalData }) {
   }
 }
 
-/**
- * New Function: Fetch market turnover data for a given symbol using NSELive.
- */
-async function getMarketTurnover({ symbol }) {
-  try {
-    const data = await nseLive.marketTurnover(symbol);
-    return data;
-  } catch (error) {
-    console.error(`Error fetching market turnover for ${symbol}:`, error);
-    return { error: "Unable to fetch market turnover" };
-  }
-}
+// /**
+//  * New Function: Fetch market turnover data for a given symbol using NSELive.
+//  */
+// async function getMarketTurnover({ symbol }) {
+//   try {
+//     const data = await nseLive.marketTurnover(symbol);
+//     return data;
+//   } catch (error) {
+//     console.error(`Error fetching market turnover for ${symbol}:`, error);
+//     return { error: "Unable to fetch market turnover" };
+//   }
+// }
 
-/**
- * New Function: Fetch equity derivative turnover data for a given symbol using NSELive.
- */
-async function getEquityDerivativeTurnover({ symbol }) {
-  try {
-    const data = await nseLive.equityDerivativeTurnover(symbol);
-    return data;
-  } catch (error) {
-    console.error(`Error fetching equity derivative turnover for ${symbol}:`, error);
-    return { error: "Unable to fetch equity derivative turnover" };
-  }
-}
+// /**
+//  * New Function: Fetch equity derivative turnover data for a given symbol using NSELive.
+//  */
+// async function getEquityDerivativeTurnover({ symbol }) {
+//   try {
+//     const data = await nseLive.equityDerivativeTurnover(symbol);
+//     return data;
+//   } catch (error) {
+//     console.error(`Error fetching equity derivative turnover for ${symbol}:`, error);
+//     return { error: "Unable to fetch equity derivative turnover" };
+//   }
+// }
 
-/**
- * New Function: Fetch data of all indices using NSELive.
- */
-async function getAllIndices() {
-  try {
-    const data = await nseLive.allIndices();
-    return data;
-  } catch (error) {
-    console.error("Error fetching all indices:", error);
-    return { error: "Unable to fetch all indices" };
-  }
-}
+// /**
+//  * New Function: Fetch data of all indices using NSELive.
+//  */
+// async function getAllIndices() {
+//   try {
+//     const data = await nseLive.allIndices();
+//     return data;
+//   } catch (error) {
+//     console.error("Error fetching all indices:", error);
+//     return { error: "Unable to fetch all indices" };
+//   }
+// }
 
 /**
  * New Function: Fetch live index data for a given symbol using NSELive.
@@ -675,18 +770,31 @@ async function getLiveIndex({ symbol }) {
   }
 }
 
-/**
- * New Function: Fetch index option chain for a given symbol using NSELive.
- */
-async function getIndexOptionChain({ symbol }) {
-  try {
-    const data = await nseLive.indexOptionChain(symbol);
-    return data;
-  } catch (error) {
-    console.error(`Error fetching index option chain for ${symbol}:`, error);
-    return { error: "Unable to fetch index option chain" };
-  }
-}
+// /**
+//  * New Function: Fetch index option chain for a given symbol using NSELive.
+//  */
+// async function getIndexOptionChain({ symbol }) {
+//   try {
+//     const data = await nseLive.indexOptionChain(symbol);
+//     const logEntry = [
+//       `Timestamp: ${new Date().toISOString()}`,
+//       `Symbol: ${symbol}`,
+//       `Futures Data: ${JSON.stringify(data, null, 2)}`,
+//       '-------------------------\n'
+//     ].join('\n');
+
+//     fs.appendFile('InOPChain.log', logEntry, (err) => {
+//       if (err) {
+//         console.error('Error writing F&O data to file:', err);
+//       }
+//     });
+
+//     return data;
+//   } catch (error) {
+//     console.error(`Error fetching index option chain for ${symbol}:`, error);
+//     return { error: "Unable to fetch index option chain" };
+//   }
+// }
 
 /**
  * Fetch company information from MongoDB Atlas.
@@ -774,21 +882,24 @@ export async function POST(request) {
         case 'get_chart_data':
           functionResponse = await getChartData(args);
           break;
-        case 'get_market_turnover':
-          functionResponse = await getMarketTurnover(args);
-          break;
-        case 'get_equity_derivative_turnover':
-          functionResponse = await getEquityDerivativeTurnover(args);
-          break;
-        case 'get_all_indices':
-          functionResponse = await getAllIndices();
-          break;
+        // case 'get_market_turnover':
+        //   functionResponse = await getMarketTurnover(args);
+        //   break;
+        // case 'get_equity_derivative_turnover':
+        //   functionResponse = await getEquityDerivativeTurnover(args);
+        //   break;
+        // case 'get_all_indices':
+        //   functionResponse = await getAllIndices();
+        //   break;
         case 'get_live_index':
           functionResponse = await getLiveIndex(args);
           break;
-        case 'get_index_option_chain':
-          functionResponse = await getIndexOptionChain(args);
-          break;
+        // case 'get_index_option_chain':
+        //   if (!args.symbol || args.symbol.trim() === "") {
+        //     args.symbol = "NIFTY";
+        //   }
+        //   functionResponse = await getIndexOptionChain(args);
+        //   break;
         default:
           functionResponse = { error: 'Function not supported' };
       }
