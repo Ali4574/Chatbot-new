@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import yahooFinance from 'yahoo-finance2';
 import UserChatLog from '@/src/models/UserChatLog';
 import axios from 'axios';
+import fs from 'fs';
 import { NSELive, NSEArchive } from 'nse-api-package'; // New: Import NSELive and NSEArchive
 
 dotenv.config({ path: '.env.local' });
@@ -232,13 +233,36 @@ const functions = [
     parameters: {
       type: 'object',
       properties: {
-        symbol: {
-          type: 'string',
-          description: 'Index symbol for which to fetch realtime data.',
+        symbols: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of Index symbol for which to fetch realtime data.',
         },
       },
       required: ['symbol'],
     },
+  },
+  {
+    name: 'get_gainers_and_losers',
+    description: 'Fetch top gainers, top losers, or both from NSELive depending on the user query.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'User query specifying what data to fetch (e.g. "top gainers", "top losers", or "gainers and losers").',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_volume_gainers',
+    description: 'Fetch volume gainers data using NSELive.',
+    parameters: {
+      type: 'object',
+      properties: {} // No parameters needed
+    }
   },
   // {
   //   name: 'get_index_option_chain',
@@ -623,13 +647,13 @@ async function getStockQuoteFNO({ symbols, optionsRequiredMonth }) {
       const underlyingValue = rawData.underlyingValue;
       const futuresData = [];
       const optionsData = [];
-      
+
       if (Array.isArray(rawData.stocks)) {
         rawData.stocks.forEach((stock) => {
           const meta = stock.metadata;
           const orderBook = stock.marketDeptOrderBook;
           if (!meta || !orderBook) return; // Skip if essential data is missing
-  
+
           const commonFields = {
             lastPrice: meta.lastPrice,
             change: meta.change,
@@ -644,7 +668,7 @@ async function getStockQuoteFNO({ symbols, optionsRequiredMonth }) {
               ask: orderBook.ask,
             }
           };
-  
+
           if (meta.instrumentType === 'Stock Futures') {
             futuresData.push({
               ...commonFields,
@@ -672,9 +696,9 @@ async function getStockQuoteFNO({ symbols, optionsRequiredMonth }) {
           }
         });
       }
-  
+
       const limitedOptionsData = optionsData.slice(0, 3);
-  
+
       return {
         symbol,
         underlyingValue,
@@ -685,7 +709,7 @@ async function getStockQuoteFNO({ symbols, optionsRequiredMonth }) {
         info: rawData.info
       };
     });
-  
+
     // Wait for all the promises to resolve
     const allData = await Promise.all(dataPromises);
     return allData;
@@ -752,15 +776,69 @@ async function getChartData({ symbol, includeAdditionalData }) {
 /**
  * New Function: Fetch live index data for a given symbol using NSELive.
  */
-async function getLiveIndex({ symbol }) {
+async function getLiveIndex({ symbols }) {
   try {
-    const data = await nseLive.liveIndex(symbol);
+
+    // Validate that symbols is an array
+    if (!symbols || !Array.isArray(symbols)) {
+      throw new Error("The 'symbols' parameter must be an array of strings.");
+    }
+
+    // Create an array of promises for each symbol
+    const indexdataPromises = symbols.map(async (symbol) => {
+      const data = await nseLive.liveIndex(symbol);
+      return { symbol, data };
+    });
+
+    // Wait for all promises to resolve
+    const data = await Promise.all(indexdataPromises);
+
     return data;
   } catch (error) {
-    console.error(`Error fetching live index for ${symbol}:`, error);
+    console.error(`Error fetching live index for ${symbols}:`, error);
     return { error: "Unable to fetch live index" };
   }
 }
+
+
+
+/**
+ * NEW FUNCTION: Fetch top gainers, top losers, or both based on the user query.
+ */
+async function getGainersAndLosersData({ query }) {
+  try {
+    const lowerQuery = query.toLowerCase();
+    if (lowerQuery.includes("gainers") && lowerQuery.includes("losers")) {
+      // Fetch both gainers and losers concurrently
+      const [gainers, losers] = await Promise.all([
+        nseLive.top10Gainers(),
+        nseLive.top10Loosers()
+      ]);
+      return { gainers, losers };
+    } else if (lowerQuery.includes("gainers")) {
+      return await nseLive.top10Gainers();
+    } else if (lowerQuery.includes("losers")) {
+      return await nseLive.top10Loosers();
+    } else {
+      return { error: "Query not recognized. Please specify 'gainers', 'losers', or 'gainers and losers'." };
+    }
+  } catch (error) {
+    console.error("Error fetching gainers and losers data:", error);
+    return { error: "Unable to fetch gainers/losers data" };
+  }
+}
+
+// Add a new helper function:
+async function getVolumeGainers() {
+  try {
+    const data = await nseLive.volumeGainers();
+    return data;
+  } catch (error) {
+    console.error("Error fetching volume gainers:", error);
+    return { error: "Unable to fetch volume gainers data" };
+  }
+}
+
 
 // /**
 //  * New Function: Fetch index option chain for a given symbol using NSELive.
@@ -873,6 +951,12 @@ export async function POST(request) {
           break;
         case 'get_chart_data':
           functionResponse = await getChartData(args);
+          break;
+        case 'get_gainers_and_losers':
+          functionResponse = await getGainersAndLosersData(args);
+          break;
+        case 'get_volume_gainers':
+          functionResponse = await getVolumeGainers();
           break;
         // case 'get_market_turnover':
         //   functionResponse = await getMarketTurnover(args);
