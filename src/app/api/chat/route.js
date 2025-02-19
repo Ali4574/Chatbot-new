@@ -1,15 +1,18 @@
 // src/app/api/chat/route.js
 
-import { NextResponse } from 'next/server';
-import OpenAI from 'openai';
-import mongoose from 'mongoose';
-import CompanyInfo from '@/src/models/CompanyInfo';
-import dotenv from 'dotenv';
-import yahooFinance from 'yahoo-finance2';
-import UserChatLog from '@/src/models/UserChatLog';
-import axios from 'axios';
-import fs from 'fs';
-import { NSELive, NSEArchive } from 'nse-api-package'; // New: Import NSELive and NSEArchive
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
+import mongoose from "mongoose";
+import CompanyInfo from "@/models/CompanyInfo";
+import dotenv from "dotenv";
+import yahooFinance from "yahoo-finance2";
+import UserChatLog from "@/models/UserChatLog";
+import axios from "axios";
+import fs from "fs";
+import { NSELive, NSEArchive } from "nse-api-package"; // New: Import NSELive and NSEArchive
+import { load } from 'cheerio';
+const puppeteer = require('puppeteer');
+import moment from 'moment';
 
 dotenv.config({ path: '.env.local' });
 
@@ -191,6 +194,41 @@ const functions = [
       required: ['symbol'],
     },
   },
+  {
+    name: 'calculate_stock_roi',
+    description:
+      'Calculate the ROI (Return on Investment) for a specific stock over a given period (1month, 3month, 6month, or 1year).',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Stock symbol, e.g. "RELIANCE".',
+        },
+        period: {
+          type: 'string',
+          enum: ['1month', '3month', '6month', '1year'],
+          description: 'Time period for ROI calculation.',
+        },
+      },
+      required: ['symbol', 'period'],
+    },
+  },
+  {
+    name: 'get_highest_return_stock',
+    description: 'Scrape the screener website to determine which stock has the highest return over specified period (1month, 3month, 6month, or 1year) and return its name and return percentage.',
+    parameters: {
+      type: 'object',
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['1month', '3month', '6month', '1year'],
+          description: 'Time period for ROI calculation.',
+        },
+      },
+      required: ['period'],
+    },
+  },
   // {
   //   name: 'get_market_turnover',
   //   description: 'Fetch market turnover data for a given symbol using NSELive.',
@@ -219,27 +257,27 @@ const functions = [
   //     required: ['symbol'],
   //   },
   // },
-  // {
-  //   name: 'get_all_indices',
-  //   description: 'Fetch data of all indices using NSELive.',
-  //   parameters: {
-  //     type: 'object',
-  //     properties: {}
-  //   },
-  // },
+  {
+    name: 'get_all_indices',
+    description: 'Fetch data of all indices using NSELive.',
+    parameters: {
+      type: 'object',
+      properties: {}
+    },
+  },
   {
     name: 'get_live_index',
-    description: 'Fetch realtime index data for a given symbol using NSELive.',
+    description: 'Fetch realtime index data for given symbols using pre-loaded indices data',
     parameters: {
       type: 'object',
       properties: {
         symbols: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Array of Index symbol for which to fetch realtime data.',
+          description: 'Array of index names/symbols to fetch (e.g. ["NIFTY 50", "NIFTY NEXT 50"])',
         },
       },
-      required: ['symbol'],
+      required: ['symbols'],
     },
   },
   {
@@ -263,6 +301,77 @@ const functions = [
       type: 'object',
       properties: {} // No parameters needed
     }
+  },
+
+  {
+    name: 'should_purchase_stock',
+    description:
+      'Analyzes a given stock by comparing its current price to the historical average over a specified period, and provides a recommendation on whether to purchase the stock today.',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbols: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Stock symbol (e.g. "RELIANCE").',
+        },
+        period: {
+          type: 'string',
+          description: 'Time period for historical analysis (e.g. "30days", "15days", "1month"). Defaults to "30days".',
+        },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_best_stocks_under_price',
+    description: 'Get recommended stocks within a specified price range and/or under a certain market cap based on fundamental analysis criteria from Screener.in.',
+    parameters: {
+      type: 'object',
+      properties: {
+        minPrice: {
+          type: 'number',
+          description: 'Optional minimum price (in INR). If provided, returns stocks priced above this value.',
+        },
+        maxPrice: {
+          type: 'number',
+          description: 'Maximum price (in INR). Stocks must be priced below this value.',
+        },
+        maxMarketCap: {
+          type: 'number',
+          description: 'Optional maximum market cap in crore INR. If provided, filters stocks by market cap below this value.',
+        }
+      },
+      required: ['maxPrice']
+    }
+  },
+  {
+    name: 'get_option_chain_data',
+    description: 'Fetch option chain data for a specific index, strike price, and option type (Put or Call). If expiry date is not provided, uses the nearest expiry.',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          enum: ['BANKNIFTY', 'NIFTY'],
+          description: 'The index symbol, either BANKNIFTY or NIFTY.',
+        },
+        strikePrice: {
+          type: 'number',
+          description: 'The strike price of the option.',
+        },
+        optionType: {
+          type: 'string',
+          enum: ['PE', 'CE'],
+          description: 'The type of option, PE for Put or CE for Call.',
+        },
+        expiryDate: {
+          type: 'string',
+          description: 'Optional expiry date in the format DD-MMM-YYYY, e.g., 27-Feb-2025. If not provided, uses the nearest expiry date.',
+        }
+      },
+      required: ['symbol', 'strikePrice', 'optionType'],
+    },
   },
   // {
   //   name: 'get_index_option_chain',
@@ -439,6 +548,8 @@ async function getTopStocks(limit = 5, underPrice) {
     if (!trendingData || trendingData.length === 0) {
       throw new Error('No trending data available from NSE API');
     }
+
+
     const symbols = trendingData
       .map((item) => item.symbol)
       .slice(0, limit)
@@ -760,46 +871,52 @@ async function getChartData({ symbol, includeAdditionalData }) {
 //   }
 // }
 
-// /**
-//  * New Function: Fetch data of all indices using NSELive.
-//  */
-// async function getAllIndices() {
-//   try {
-//     const data = await nseLive.allIndices();
-//     return data;
-//   } catch (error) {
-//     console.error("Error fetching all indices:", error);
-//     return { error: "Unable to fetch all indices" };
-//   }
-// }
+/**
+ * New Function: Fetch data of all indices using NSELive.
+ */
+async function getAllIndices() {
+  try {
+    const data = await nseLive.allIndices();
+  } catch (error) {
+    console.error("Error fetching all indices:", error);
+    return { error: "Unable to fetch all indices" };
+  }
+}
 
 /**
  * New Function: Fetch live index data for a given symbol using NSELive.
  */
 async function getLiveIndex({ symbols }) {
   try {
+    // 1. Get all indices data
+    const allIndices = await getAllIndices();
 
-    // Validate that symbols is an array
-    if (!symbols || !Array.isArray(symbols)) {
-      throw new Error("The 'symbols' parameter must be an array of strings.");
+    if (allIndices.error) {
+      return { error: allIndices.error };
     }
 
-    // Create an array of promises for each symbol
-    const indexdataPromises = symbols.map(async (symbol) => {
-      const data = await nseLive.liveIndex(symbol);
-      return { symbol, data };
-    });
+    // 2. Filter indices based on user query
+    const filteredData = allIndices.data.filter(index =>
+      symbols.some(symbol =>
+        index.index.toLowerCase() === symbol.toLowerCase() ||
+        index.indexSymbol.toLowerCase() === symbol.toLowerCase()
+      )
+    );
 
-    // Wait for all promises to resolve
-    const data = await Promise.all(indexdataPromises);
+    // 3. Handle no matches
+    if (!filteredData.length) {
+      return {
+        error: "No matching indices found. Available indices: " +
+          allIndices.data.map(d => d.index).join(', ')
+      };
+    }
 
-    return data;
+    return filteredData;
   } catch (error) {
-    console.error(`Error fetching live index for ${symbols}:`, error);
-    return { error: "Unable to fetch live index" };
+    console.error('Error fetching live index:', error);
+    return { error: "Unable to fetch index data" };
   }
 }
-
 
 
 /**
@@ -837,6 +954,562 @@ async function getVolumeGainers() {
     console.error("Error fetching volume gainers:", error);
     return { error: "Unable to fetch volume gainers data" };
   }
+}
+
+async function shouldPurchaseStocks({ symbols, period = '30days' }) {
+  const now = new Date();
+  let days;
+
+  // Parse the period string to determine the number of days.
+  if (typeof period === "string") {
+    const lower = period.toLowerCase();
+    const match = lower.match(/^(\d+)\s*(day|days|month|months|year|years)$/);
+    if (match) {
+      const value = parseInt(match[1], 10);
+      const unit = match[2];
+      if (unit.startsWith("day")) {
+        days = value;
+      } else if (unit.startsWith("month")) {
+        days = value * 30; // Approximate conversion: 1 month ≈ 30 days
+      } else if (unit.startsWith("year")) {
+        days = value * 365; // Approximate conversion: 1 year ≈ 365 days
+      }
+    }
+  }
+  if (!days) {
+    days = 30; // Default to 30 days if period is not valid.
+  }
+
+  // Calculate the start date based on the number of days.
+  const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  const recommendations = [];
+
+  for (const symbol of symbols) {
+    try {
+      // Ensure symbol is in correct format for Indian stocks.
+      const querySymbol = symbol.includes('.') ? symbol : `${symbol}.NS`;
+
+      // Fetch historical data over the period.
+      const historicalData = await fetchHistoricalData(querySymbol, startDate, now, '1d');
+      if (!historicalData || historicalData.length === 0) {
+        recommendations.push({
+          symbol: querySymbol,
+          recommendation: "Insufficient historical data to provide a recommendation."
+        });
+        continue;
+      }
+
+      // Calculate the average closing price over the period.
+      const total = historicalData.reduce((acc, item) => acc + item.price, 0);
+      const averagePrice = total / historicalData.length;
+
+      // Fetch current stock data.
+      const currentData = await yahooFinance.quote(querySymbol);
+      const currentPrice = currentData.regularMarketPrice;
+
+      // Generate a recommendation.
+      let recommendation = "";
+      if (currentPrice < averagePrice * 0.98) {
+        recommendation = "The current price is below the recent average, indicating a potential buying opportunity.";
+      } else if (currentPrice > averagePrice * 1.02) {
+        recommendation = "The current price is above the recent average, which may suggest it is overvalued at this time.";
+      } else {
+        recommendation = "The current price is close to the recent average; further analysis is recommended before purchasing.";
+      }
+
+      recommendations.push({
+        symbol: querySymbol,
+        currentPrice,
+        averagePrice,
+        recommendation,
+        note: "This analysis is based solely on historical price data and is not personalized financial advice. Please consult a financial advisor before making any investment decisions."
+      });
+    } catch (error) {
+      console.error(`Error processing ${symbol}:`, error);
+      recommendations.push({
+        symbol,
+        recommendation: "Error processing data for this symbol."
+      });
+    }
+  }
+
+  return recommendations;
+}
+
+
+
+
+
+
+
+
+async function calculateStockROI(symbol, period) {
+  let days;
+  switch (period) {
+    case '1month':
+      days = 30;
+      break;
+    case '3month':
+      days = 90;
+      break;
+    case '6month':
+      days = 180;
+      break;
+    case '1year':
+      days = 365;
+      break;
+    default:
+      throw new Error('Invalid period specified');
+  }
+
+  const now = new Date();
+  const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+  try {
+    // Normalize the symbol to follow the Indian market convention if needed.
+    let querySymbol = symbol;
+    if (!symbol.includes('.') && /^[A-Z]+$/.test(symbol)) {
+      querySymbol = `${symbol}.NS`;
+    }
+    // Fetch historical data for the computed period. Assume this function returns an array of data points sorted by date.
+    const history = await fetchHistoricalData(querySymbol, startDate, now, '1d');
+    if (!history || history.length === 0) {
+      return { symbol, error: 'No historical data available for the specified period' };
+    }
+    // Assume the first entry is the earliest price and the last entry is the most recent.
+    const startPrice = history[0].price;
+    const endPrice = history[history.length - 1].price;
+    const roi = ((endPrice - startPrice) / startPrice) * 100;
+    return { symbol: querySymbol, period, startPrice, endPrice, roi };
+  } catch (error) {
+    console.error(`Error calculating ROI for ${symbol}:`, error);
+    return { symbol, error: 'Unable to calculate ROI' };
+  }
+}
+
+
+
+
+
+async function getHighestReturnStock(args) {
+  const { period } = args;
+  const urlMap = {
+    '1month': 'https://www.screener.in/screens/300202/stocks-with-good-1-month-returns/?sort=return+over+1month&order=desc',
+    '3month': 'https://www.screener.in/screens/355769/highest-return-in-3-months/?sort=return+over+3months&order=desc',
+    '6month': 'https://www.screener.in/screens/264786/highest-returns-in-six-months/',
+    '1year': 'https://www.screener.in/screens/355766/highest-return-in-1-year/'
+  };
+  const periodKeyMap = {
+    '1month': '1M Return %',
+    '3month': '3M Return %',
+    '6month': '6M Return %',
+    '1year': '1Y Return %'
+  };
+
+  try {
+    const response = await axios.get(urlMap[period], {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept-Language": "en-US,en;q=0.9",
+      }
+    });
+
+    const $ = load(response.data);
+    const table = $('div.responsive-holder.fill-card-width table.data-table');
+    if (!table.length) return { error: "No table found" };
+
+    const scrapedData = [];
+    table.find('tbody tr').each((index, row) => {
+      const cols = $(row).find('td');
+      if (!cols.length) return;
+
+      // Extract details from each row. Adjust indexes if necessary.
+      const stockName = $(cols[1]).text().trim();
+      const returnText = $(cols).last().text().trim();
+      const returnValue = parseFloat(returnText);
+
+      scrapedData.push({
+        name: stockName,
+        [periodKeyMap[period]]: returnValue
+      });
+    });
+
+    // Return the full scraped data array
+    return scrapedData;
+  } catch (error) {
+    console.error("Error in getHighestReturnStock:", error);
+    return { error: error.message };
+  }
+}
+
+
+
+
+
+
+
+
+
+
+async function getBestStocksUnderPrice(args) {
+  const { minPrice, maxPrice, maxMarketCap } = args;
+  const browser = await puppeteer.launch({ headless: true });
+  const page = await browser.newPage();
+
+  // Inline helper function to parse market cap values
+  const parseMarketCap = (marketCapText) => {
+    if (!marketCapText) return null;
+    // Handle "Lakh Cr." format (e.g., "1 Lakh Cr." = 100,000 Cr.)
+    if (marketCapText.includes('Lakh')) {
+      const value = parseFloat(marketCapText.replace(' Lakh Cr.', '').replace(/,/g, ''));
+      return value * 100000; // Convert Lakh Cr. to Cr.
+    }
+    // Handle "Cr." format (e.g., "1,000 Cr." = 1000 Cr.)
+    if (marketCapText.includes('Cr.')) {
+      return parseFloat(marketCapText.replace(' Cr.', '').replace(/,/g, ''));
+    }
+    const parsedValue = parseFloat(marketCapText.replace(/,/g, ''));
+    return isNaN(parsedValue) ? null : parsedValue;
+  };
+
+  try {
+    // Navigate to Screener.in login page
+    await page.goto('https://www.screener.in/login/', { waitUntil: 'networkidle2' });
+
+    // Enter login credentials
+    await page.type('input[name="username"]', process.env.SCREENER_USERNAME, { delay: 100 });
+    await page.type('input[name="password"]', process.env.SCREENER_PASSWORD, { delay: 100 });
+
+    // Click the login button and wait for navigation
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: 'networkidle2' }),
+    ]);
+
+    console.log('Login successful');
+
+    // Construct query parts
+    const queryParts = [
+      "Sales growth 3Years > 10",
+      "Profit growth 3Years > 10",
+      "Debt to equity < 0.5",
+    ];
+
+    // Price condition
+    if (minPrice !== undefined) {
+      queryParts.push(`Current price > ${minPrice} AND Current price < ${maxPrice}`);
+    } else {
+      queryParts.push(`Current price < ${maxPrice}`);
+    }
+
+    queryParts.push("Sales > 500");
+
+    // Market Cap condition
+    if (maxMarketCap !== undefined) {
+      queryParts.push(`Market Capitalization < ${maxMarketCap}`);
+    }
+
+    // Encode query
+    const query = queryParts.join(" AND\r\n");
+    const encodedQuery = encodeURIComponent(query)
+      .replace(/%20/g, '+')
+      .replace(/%0D%0A/g, '%0D%0A');
+
+    const url = `https://www.screener.in/screen/raw/?sort=&order=&source_id=&query=${encodedQuery}`;
+    console.log('Navigating to URL:', url);
+    await page.goto(url, { waitUntil: 'networkidle2' });
+    await page.waitForSelector('div.responsive-holder.fill-card-width table.data-table tbody tr');
+
+    const html = await page.content();
+    const $ = load(html); // Ensure Cheerio is imported: const { load } = require('cheerio');
+
+    const stocks = [];
+    $('div.responsive-holder.fill-card-width table.data-table tbody tr').each((index, row) => {
+      const cols = $(row).find('td');
+      if (cols.length < 14) return;
+
+      const marketCapText = $(cols[4]).text().trim();
+      const marketCapValue = parseMarketCap(marketCapText);
+
+      const stockData = {
+        name: $(cols[1]).find('a').text().trim(),
+        url: `https://www.screener.in${$(cols[1]).find('a').attr('href')}`,
+        cmp: parseFloat($(cols[2]).text().trim().replace(/,/g, '')),
+        peRatio: parseFloat($(cols[3]).text().trim()),
+        marketCap: marketCapText,
+        marketCapValue: marketCapValue,
+        salesVar3Yrs: parseFloat($(cols[11]).text().trim()),
+        profitVar3Yrs: parseFloat($(cols[12]).text().trim()),
+        debtToEquity: parseFloat($(cols[13]).text().trim())
+      };
+
+      stocks.push(stockData);
+    });
+
+    // Post-filtering for accuracy
+    let filteredStocks = stocks;
+    if (minPrice !== undefined) {
+      filteredStocks = filteredStocks.filter(stock => stock.cmp > minPrice);
+    }
+    if (maxPrice !== undefined) {
+      filteredStocks = filteredStocks.filter(stock => stock.cmp < maxPrice);
+    }
+    if (maxMarketCap !== undefined) {
+      filteredStocks = filteredStocks.filter(stock => stock.marketCapValue <= maxMarketCap);
+    }
+
+    return filteredStocks;
+
+  } catch (error) {
+    console.error('Error:', error);
+    return { error: error.message };
+  } finally {
+    await browser.close();
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate }) {
+  try {
+    // Fetch cookies required by NSE
+    const cookieResponse = await axios.get('https://www.nseindia.com', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    });
+    const cookies = cookieResponse.headers['set-cookie'];
+    const cookieHeader = cookies ? cookies.join('; ') : '';
+
+    // Fetch option chain data
+    const url = `https://www.nseindia.com/api/option-chain-indices?symbol=${symbol}`;
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Accept': 'application/json',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.nseindia.com/',
+        'Cookie': cookieHeader,
+      },
+    });
+
+    const data = response.data;
+
+    // Get current date and filter out expired dates
+    const currentMoment = moment();
+    const validExpiryDates = data.records.expiryDates
+      .map(expiry => moment(expiry, 'DD-MMM-YYYY'))
+      .filter(expiryMoment => expiryMoment.isSameOrAfter(currentMoment, 'day'))
+      .map(expiryMoment => expiryMoment.format('DD-MMM-YYYY'));
+
+    if (validExpiryDates.length === 0) {
+      return { error: "No future expiry dates available" };
+    }
+
+    const dateFormats = [
+      'DD-MMM-YYYY', // e.g., 27-Mar-2025
+      'D-MMM-YYYY',
+      'DD MMM YYYY',
+      'D MMM YYYY',
+      'MMMM D, YYYY',
+      'MMM D, YYYY',
+      'YYYY-MM-DD',
+      'YYYY-M-D',
+    ];
+
+    // Handle user-provided expiry date
+    let targetExpiry;
+    if (expiryDate) {
+      let targetExpiryFound = false;
+
+      // Attempt to parse as an exact date first
+      const parsedExactDate = moment(expiryDate, dateFormats, true);
+      if (parsedExactDate.isValid()) {
+        const formattedExactExpiry = parsedExactDate.format('DD-MMM-YYYY');
+        if (validExpiryDates.includes(formattedExactExpiry)) {
+          targetExpiry = formattedExactExpiry;
+          targetExpiryFound = true;
+        }
+      }
+
+      if (!targetExpiryFound) {
+        const parsed = moment(expiryDate, ['YYYY', 'MMM YYYY', 'MMMM YYYY', 'MMM', 'MMMM'], true);
+        if (parsed.isValid()) {
+          if (isNaN(parsed.month())) {
+            // Handle year-only input (e.g., "2026")
+            const targetYear = parsed.year();
+            if (isNaN(targetYear)) {
+              return { error: `Invalid year: ${expiryDate}` };
+            }
+            const possibleDates = validExpiryDates
+              .map(dateStr => {
+                const m = moment(dateStr, 'DD-MMM-YYYY');
+                return { date: m, year: m.year(), formatted: dateStr };
+              })
+              .filter(d => d.year === targetYear);
+
+            if (possibleDates.length === 0) {
+              return { error: `No expiries found in year ${targetYear}.` };
+            }
+
+            possibleDates.sort((a, b) => b.date - a.date);
+            targetExpiry = possibleDates[0].formatted;
+            targetExpiryFound = true;
+          } else {
+            // Handle month and/or year input (e.g., "Dec 2026", "Feb")
+            const targetMonth = parsed.month();
+            const targetYear = parsed.year();
+
+            const possibleDates = validExpiryDates
+              .map(dateStr => {
+                const m = moment(dateStr, 'DD-MMM-YYYY');
+                return { date: m, year: m.year(), month: m.month(), day: m.date(), formatted: dateStr };
+              })
+              .filter(d => {
+                const monthMatch = d.month === targetMonth;
+                const yearMatch = targetYear ? d.year === targetYear : true;
+                return monthMatch && yearMatch;
+              });
+
+            if (possibleDates.length === 0) {
+              return { error: `No expiry found for ${expiryDate}. Valid expiries: ${validExpiryDates.join(', ')}` };
+            }
+
+            if (targetYear) {
+              const maxDay = Math.max(...possibleDates.map(d => d.day));
+              const target = possibleDates.find(d => d.day === maxDay);
+              targetExpiry = target.formatted;
+            } else {
+              const years = [...new Set(possibleDates.map(d => d.year))].sort((a, b) => a - b);
+              const earliestYear = years[0];
+              const earliestYearDates = possibleDates.filter(d => d.year === earliestYear);
+              const maxDay = Math.max(...earliestYearDates.map(d => d.day));
+              const target = earliestYearDates.find(d => d.day === maxDay);
+              targetExpiry = target.formatted;
+            }
+
+            targetExpiryFound = true;
+          }
+        } else {
+          return { error: `Invalid expiry date format: ${expiryDate}` };
+        }
+      }
+
+      if (!targetExpiryFound) {
+        return { error: `Expiry not found for '${expiryDate}'. Valid expiries: ${validExpiryDates.join(', ')}` };
+      }
+    } else {
+      targetExpiry = validExpiryDates[0]; // Nearest future expiry
+    }
+
+    // Find matching strike and expiry
+    const entry = data.records.data.find(item =>
+      item.strikePrice === strikePrice &&
+      item.expiryDate === targetExpiry
+    );
+
+    if (!entry) return { error: 'No data found for specified parameters' };
+
+    // Extract relevant option data
+    const optionData = entry[optionType];
+    if (!optionData) return { error: 'Option type not found' };
+
+    // Calculate moneyness
+    const underlyingPrice = optionData.underlyingValue;
+    const isInTheMoney = optionType === 'PE'
+      ? strikePrice >= underlyingPrice
+      : strikePrice <= underlyingPrice;
+
+    // Analyze OI changes
+    const oiAnalysis = optionData.changeinOpenInterest > 0
+      ? 'Open interest is increasing, suggesting growing trader interest.'
+      : 'Open interest is decreasing, indicating a lack of conviction among traders.';
+
+    // Generate recommendation based on the analyzed data
+    const recommendation = generateRecommendation(optionData, optionType);
+
+    return {
+      symbol,
+      strikePrice,
+      optionType,
+      expiryDate: targetExpiry,
+      openInterest: optionData.openInterest,
+      changeinOpenInterest: optionData.changeinOpenInterest,
+      pChangeInOI: optionData.pchangeinOpenInterest,
+      lastPrice: optionData.lastPrice,
+      impliedVolatility: optionData.impliedVolatility,
+      underlyingValue: underlyingPrice,
+      moneyness: isInTheMoney ? 'In-the-money' : 'Out-of-the-money',
+      analysis: {
+        oiTrend: oiAnalysis,
+        volatilityStatus: optionData.impliedVolatility > 40 ? 'High IV' : 'Normal IV',
+        riskRewardRatio: (underlyingPrice / strikePrice).toFixed(2)
+      },
+      recommendation
+    };
+
+  } catch (error) {
+    console.error('Error fetching option data:', error);
+    return { error: 'Failed to fetch option chain data' };
+  }
+}
+
+function generateRecommendation(optionData, optionType) {
+  const underlying = optionData.underlyingValue;
+  const strike = optionData.strikePrice;
+  const isInTheMoney = optionType === 'PE'
+    ? strike >= underlying
+    : strike <= underlying;
+
+  // Moneyness recommendation
+  let moneynessRecommendation = '';
+  if (optionType === 'PE') {
+    moneynessRecommendation = isInTheMoney
+      ? "The put option is in-the-money, providing intrinsic value."
+      : "The put option is out-of-the-money; a significant move downward in the underlying index is required to profit.";
+  } else {
+    moneynessRecommendation = isInTheMoney
+      ? "The call option is in-the-money, providing intrinsic value."
+      : "The call option is out-of-the-money; the underlying index must move higher for profitability.";
+  }
+
+  // Open Interest analysis
+  const oiTrend = optionData.changeinOpenInterest > 0
+    ? "The increasing open interest indicates that more traders are entering this position, suggesting emerging sentiment."
+    : "The decreasing open interest might indicate waning trader interest.";
+
+  // Implied Volatility assessment
+  const volatilityStatus = optionData.impliedVolatility > 40
+    ? "The high implied volatility suggests that the option premium may be inflated due to market uncertainty."
+    : "The implied volatility is within a normal range, implying fair pricing of the option.";
+
+  // Risk–Reward Ratio Analysis
+  const riskRewardRatio = (underlying / strike).toFixed(2);
+  const riskRewardRecommendation = riskRewardRatio > 1
+    ? "A significant move in the underlying asset is needed to make the option profitable."
+    : "The risk/reward balance appears acceptable given the current market conditions.";
+
+  // Overall Recommendation Statement
+  const overallRecommendation = `
+Recommendation for ${optionData.underlying} ${strike} ${optionType === 'PE' ? 'Put' : 'Call'} Option:
+- Moneyness: ${moneynessRecommendation}
+- Open Interest: ${oiTrend}
+- Implied Volatility: ${volatilityStatus}
+- Risk/Reward: ${riskRewardRecommendation}
+
+Overall, if you have a strong directional view (for example, expecting a bearish trend for a put option) and the market conditions align with these signals, this option might serve as a good speculative or hedging play. Otherwise, consider waiting for clearer indicators or exploring other strike levels.
+  `;
+
+  return overallRecommendation;
 }
 
 
@@ -899,15 +1572,12 @@ export async function POST(request) {
 
     // Call OpenAI to get the initial assistant response.
     const initialResponse = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
           content:
-            "You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable.\n\n" +
-            "STRICT RULES:\n" +
-            "- Do not answer any off-topic questions that do not pertain directly to stock or crypto analysis. If a user submits an off-topic query, politely indicate that you can only assist with financial market analysis.\n" +
-            "- Do not provide any details about the underlying code, API usage, or built-in systems. If asked technical questions about the implementation (e.g., which API is used for real-time stock prices), respond with a standard refusal message such as 'I'm sorry, but I cannot disclose details about my internal systems.'\n",
+            "You are a highly specialized financial analyst assistant for company 'profit flow' focused exclusively on Indian stocks, crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable.\n\n",
         },
         ...messages,
       ],
@@ -915,7 +1585,7 @@ export async function POST(request) {
       function_call: 'auto',
     });
     const message = initialResponse.choices[0].message;
-
+    
     // If OpenAI requested a function call, process that.
     if (message.function_call) {
       const functionName = message.function_call.name;
@@ -958,17 +1628,32 @@ export async function POST(request) {
         case 'get_volume_gainers':
           functionResponse = await getVolumeGainers();
           break;
+        case 'should_purchase_stock':
+          functionResponse = await shouldPurchaseStocks(args);
+          break;
+        case 'calculate_stock_roi':
+          functionResponse = await calculateStockROI(args.symbol, args.period);
+          break;
+        case 'get_highest_return_stock':
+          functionResponse = await getHighestReturnStock(args);
+          break;
+        case 'get_best_stocks_under_price':
+          functionResponse = await getBestStocksUnderPrice(args);
+          break;
         // case 'get_market_turnover':
         //   functionResponse = await getMarketTurnover(args);
         //   break;
         // case 'get_equity_derivative_turnover':
         //   functionResponse = await getEquityDerivativeTurnover(args);
         //   break;
-        // case 'get_all_indices':
-        //   functionResponse = await getAllIndices();
-        //   break;
+        case 'get_all_indices':
+          functionResponse = await getAllIndices();
+          break;
         case 'get_live_index':
           functionResponse = await getLiveIndex(args);
+          break;
+        case 'get_option_chain_data':
+          functionResponse = await getOptionChainData(args);
           break;
         // case 'get_index_option_chain':
         //   if (!args.symbol || args.symbol.trim() === "") {
@@ -1032,7 +1717,7 @@ export async function POST(request) {
       let finalResponse;
       if (functionName === "get_company_info") {
         finalResponse = await openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-4o-mini",
           messages: [
             ...messages,
             {
@@ -1055,7 +1740,7 @@ ${JSON.stringify(functionResponse, null, 2)}
 
 Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;
         finalResponse = await openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-4o-mini",
           messages: [
             ...messages,
             {

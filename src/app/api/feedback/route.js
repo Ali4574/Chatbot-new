@@ -1,9 +1,9 @@
 //src\app\api\feedback\route.js
 
-import { NextResponse } from 'next/server';
-import mongoose from 'mongoose';
-import dotenv from 'dotenv';
-import UserChatLog from '@/src/models/UserChatLog';
+import { NextResponse } from "next/server";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+import UserChatLog from "@/models/UserChatLog";
 
 dotenv.config({ path: '.env.local' });
 
