@@ -877,6 +877,7 @@ async function getChartData({ symbol, includeAdditionalData }) {
 async function getAllIndices() {
   try {
     const data = await nseLive.allIndices();
+  return data;
   } catch (error) {
     console.error("Error fetching all indices:", error);
     return { error: "Unable to fetch all indices" };
