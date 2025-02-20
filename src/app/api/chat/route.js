@@ -1306,17 +1306,20 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
     const data = response.data;
 
     // Get current date and filter out expired dates
+    // Filter valid expiry dates (current and future)
     const currentMoment = moment();
     const validExpiryDates = data.records.expiryDates
-      .map(expiry => moment(expiry, 'DD-MMM-YYYY'))
+      .map(expiry => moment(expiry, 'DD-MMM-YYYY', true))
       .filter(expiryMoment => expiryMoment.isSameOrAfter(currentMoment, 'day'))
-      .map(expiryMoment => expiryMoment.format('DD-MMM-YYYY'));
+      .sort((a, b) => a - b) // Sort ascending
+      .map(m => m.format('DD-MMM-YYYY'));
 
-    if (validExpiryDates.length === 0) {
-      return { error: "No future expiry dates available" };
-    }
+    if (!validExpiryDates.length) return { error: "No future expiries available" };
 
-    const dateFormats = [
+    // Parse user-provided expiryDate
+    let targetExpiry;
+    if (expiryDate) {
+      const dateFormats = [
       'DD-MMM-YYYY', // e.g., 27-Mar-2025
       'D-MMM-YYYY',
       'DD MMM YYYY',
@@ -1325,103 +1328,69 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
       'MMM D, YYYY',
       'YYYY-MM-DD',
       'YYYY-M-D',
+      'MMMM YYYY', 
+      'YYYY',
+      'MMM', 
+      'MMMM'
     ];
 
-    // Handle user-provided expiry date
-    let targetExpiry;
-    if (expiryDate) {
-      let targetExpiryFound = false;
-
-      // Attempt to parse as an exact date first
-      const parsedExactDate = moment(expiryDate, dateFormats, true);
-      if (parsedExactDate.isValid()) {
-        const formattedExactExpiry = parsedExactDate.format('DD-MMM-YYYY');
-        if (validExpiryDates.includes(formattedExactExpiry)) {
-          targetExpiry = formattedExactExpiry;
-          targetExpiryFound = true;
-        }
+    // Try parsing as exact date first
+    const parsedExact = moment(expiryDate, dateFormats, true);
+    if (parsedExact.isValid()) {
+      const exactExpiry = parsedExact.format('DD-MMM-YYYY');
+      if (validExpiryDates.includes(exactExpiry)) {
+        targetExpiry = exactExpiry;
       }
-
-      if (!targetExpiryFound) {
-        const parsed = moment(expiryDate, ['YYYY', 'MMM YYYY', 'MMMM YYYY', 'MMM', 'MMMM'], true);
-        if (parsed.isValid()) {
-          if (isNaN(parsed.month())) {
-            // Handle year-only input (e.g., "2026")
-            const targetYear = parsed.year();
-            if (isNaN(targetYear)) {
-              return { error: `Invalid year: ${expiryDate}` };
-            }
-            const possibleDates = validExpiryDates
-              .map(dateStr => {
-                const m = moment(dateStr, 'DD-MMM-YYYY');
-                return { date: m, year: m.year(), formatted: dateStr };
-              })
-              .filter(d => d.year === targetYear);
-
-            if (possibleDates.length === 0) {
-              return { error: `No expiries found in year ${targetYear}.` };
-            }
-
-            possibleDates.sort((a, b) => b.date - a.date);
-            targetExpiry = possibleDates[0].formatted;
-            targetExpiryFound = true;
-          } else {
-            // Handle month and/or year input (e.g., "Dec 2026", "Feb")
-            const targetMonth = parsed.month();
-            const targetYear = parsed.year();
-
-            const possibleDates = validExpiryDates
-              .map(dateStr => {
-                const m = moment(dateStr, 'DD-MMM-YYYY');
-                return { date: m, year: m.year(), month: m.month(), day: m.date(), formatted: dateStr };
-              })
-              .filter(d => {
-                const monthMatch = d.month === targetMonth;
-                const yearMatch = targetYear ? d.year === targetYear : true;
-                return monthMatch && yearMatch;
-              });
-
-            if (possibleDates.length === 0) {
-              return { error: `No expiry found for ${expiryDate}. Valid expiries: ${validExpiryDates.join(', ')}` };
-            }
-
-            if (targetYear) {
-              const maxDay = Math.max(...possibleDates.map(d => d.day));
-              const target = possibleDates.find(d => d.day === maxDay);
-              targetExpiry = target.formatted;
-            } else {
-              const years = [...new Set(possibleDates.map(d => d.year))].sort((a, b) => a - b);
-              const earliestYear = years[0];
-              const earliestYearDates = possibleDates.filter(d => d.year === earliestYear);
-              const maxDay = Math.max(...earliestYearDates.map(d => d.day));
-              const target = earliestYearDates.find(d => d.day === maxDay);
-              targetExpiry = target.formatted;
-            }
-
-            targetExpiryFound = true;
-          }
-        } else {
-          return { error: `Invalid expiry date format: ${expiryDate}` };
-        }
-      }
-
-      if (!targetExpiryFound) {
-        return { error: `Expiry not found for '${expiryDate}'. Valid expiries: ${validExpiryDates.join(', ')}` };
-      }
-    } else {
-      targetExpiry = validExpiryDates[0]; // Nearest future expiry
     }
 
-    // Find matching strike and expiry
-    const entry = data.records.data.find(item =>
-      item.strikePrice === strikePrice &&
-      item.expiryDate === targetExpiry
-    );
+    // Handle partial dates (month/year)
+    if (!targetExpiry) {
+      const parsed = moment(expiryDate, dateFormats, true);
+      if (parsed.isValid()) {
+        let possibleDates = validExpiryDates.map(d => ({
+          date: moment(d, 'DD-MMM-YYYY'),
+          formatted: d
+        }));
 
-    if (!entry) return { error: 'No data found for specified parameters' };
+        // Filter by month/year
+        if (parsed.month() !== undefined) { // Month specified
+          const targetMonth = parsed.month();
+          possibleDates = possibleDates.filter(d => d.date.month() === targetMonth);
+        }
+        if (parsed.year() !== undefined) { // Year specified
+          const targetYear = parsed.year();
+          possibleDates = possibleDates.filter(d => d.date.year() === targetYear);
+        }
 
-    // Extract relevant option data
-    const optionData = entry[optionType];
+        if (possibleDates.length === 0) {
+          return { error: `No expiry found for '${expiryDate}'. Valid: ${validExpiryDates.join(', ')}` };
+        }
+
+        // Sort ascending and pick earliest date for month, latest for year
+        possibleDates.sort((a, b) => a.date - b.date);
+        if (parsed.year() === undefined && parsed.month() !== undefined) {
+          targetExpiry = possibleDates[0].formatted; // Earliest in month
+        } else {
+          targetExpiry = possibleDates[possibleDates.length - 1].formatted; // Latest in year
+        }
+      }
+    }
+
+    if (!targetExpiry) return { error: `Invalid expiry: ${expiryDate}` };
+  } else {
+    targetExpiry = validExpiryDates[0]; // Nearest expiry
+  }
+
+  // Find matching strike and expiry
+  const entry = data.records.data.find(item =>
+    item.strikePrice === strikePrice &&
+    item.expiryDate === targetExpiry
+  );
+
+  if (!entry) return { error: 'No data for specified strike/expiry' };
+
+  // Process and return the option data
+  const optionData = entry[optionType];
     if (!optionData) return { error: 'Option type not found' };
 
     // Calculate moneyness
@@ -1739,7 +1708,9 @@ export async function POST(request) {
 Data:
 ${JSON.stringify(functionResponse, null, 2)}
 
-Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;
+Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;  
+        console.log(JSON.stringify(functionResponse, null, 2));
+        
         finalResponse = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
@@ -1754,7 +1725,7 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
                 "- Provide only the data that is directly relevant to the query. Avoid including excessive or extraneous information.\n" +
                 "- Highlight essential data points, such as **current price**, in bold and present all related details in a clear and concise manner.\n" +
                 "Based on the provided input data, generate an in-depth market analysis report that dynamically identifies all significant metrics. Include a detailed explanation of what each metric represents, why it is important, and its implications for investors, along with additional context such as trend analysis, comparisons, or potential risks.\n" +
-                "Ensure your response goes beyond simply listing data points by including clear, explanatory sentences and a narrative that ties the data together. Use markdown headings (like '## Company Profile' and '## Key Financial Metrics') to organize the information. Add numbering with bullet points for heading and subheadings\n" +
+                "Ensure your response goes beyond simply listing data points by including clear, explanatory sentences and a narrative that ties the data together. Use markdown headings (like '## Company Profile' and '## Key Financial Metrics') to organize the information. Add numbering with bullet points for heading and subheadings.\n" +
                 (reports.length > 0
                   ? `User feedback to consider: ${reports.slice(-3).join(". ")}. Address these concerns appropriately.\n\n`
                   : "")
@@ -1768,9 +1739,34 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
           max_tokens: 1000,
         });
       }
-      console.log(reports);
+      
+      // --- Step 3: Refine Final Response Using Fine-Tuned Model (Model 3) ---
+      // Here, we pass the output from the finalResponse generation to our fine-tuned model
+      // which has been trained on global feedback data to further refine the answer.
+      const finalGeneratedMessage = finalResponse.choices[0].message;
+      console.log("Intermediate final response:", finalGeneratedMessage.content);
+      
+      const refinedResponse = await openai.chat.completions.create({
+        model: "ft:gpt-4o-mini-2024-07-18:profit-millionaire:model20-2025:B2x2Eibk", // Your fine-tuned model trained on feedback examples
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a highly trained financial analysis assistant. Your job is to refine the provided response according to our global guidelines, ensuring all necessary disclaimers and context are included.",
+          },
+          // Pass the final generated response as input to be refined.
+          { role: "user", content: finalGeneratedMessage.content },
+        ],
+        temperature: 0.6,
+        max_tokens: 500,
+      });
+      
+      const refinedMessage = refinedResponse.choices[0].message;
+      console.log("Final refined response:", refinedMessage.content);
+      
+      // Return the final, refined response.
       return NextResponse.json({
-        ...finalResponse.choices[0].message,
+        ...refinedMessage,
         rawData: functionResponse,
         functionName: message.function_call.name,
       });
