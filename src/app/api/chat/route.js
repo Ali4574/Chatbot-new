@@ -347,32 +347,32 @@ const functions = [
   },
   {
     name: 'get_option_chain_data',
-    description: 'Fetch option chain data for a specific index, strike price, and option type (Put or Call). If expiry date is not provided, uses the nearest expiry.',
+    description: 'Analyze option contracts (PUT/CALL) for NSE indices. Use this for evaluating strike prices, open interest, premiums, and volatility. Returns critical data for options trading decisions including moneyness, OI changes, and IV analysis.',
     parameters: {
       type: 'object',
       properties: {
         symbol: {
           type: 'string',
           enum: ['BANKNIFTY', 'NIFTY'],
-          description: 'The index symbol, either BANKNIFTY or NIFTY.',
+          description: 'Index name - BANKNIFTY for banking sector, NIFTY for Nifty 50',
         },
         strikePrice: {
           type: 'number',
-          description: 'The strike price of the option.',
+          description: 'Exact strike price being analyzed (e.g., 49000)',
         },
         optionType: {
           type: 'string',
           enum: ['PE', 'CE'],
-          description: 'The type of option, PE for Put or CE for Call.',
+          description: 'PE for Put Options, CE for Call Options',
         },
         expiryDate: {
           type: 'string',
-          description: 'Optional expiry date in the format DD-MMM-YYYY, e.g., 27-Feb-2025. If not provided, uses the nearest expiry date.',
+          description: 'Optional expiry in DD-MMM-YYYY format',
         }
       },
       required: ['symbol', 'strikePrice', 'optionType'],
     },
-  },
+  }
   // {
   //   name: 'get_index_option_chain',
   //   description: 'Fetch the index option chain for a given symbol using NSELive.',
