@@ -4507,7 +4507,7 @@ async function getHighestReturnStock(args) {
 
 async function getBestStocksUnderPrice(args) {
   const { minPrice, maxPrice, maxMarketCap } = args;
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   const page = await browser.newPage();
 
   // Inline helper function to parse market cap values

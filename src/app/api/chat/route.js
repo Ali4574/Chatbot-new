@@ -365,10 +365,10 @@ const functions = [
           enum: ['PE', 'CE'],
           description: 'PE for Put Options, CE for Call Options',
         },
-        expiryDate: {
-          type: 'string',
-          description: 'Optional expiry in DD-MMM-YYYY format',
-        }
+        // expiryDate: {
+        //   type: 'string',
+        //   description: 'Optional expiry in DD-MMM-YYYY, MMM, YYYY, MMM YYYY format',
+        // }
       },
       required: ['symbol', 'strikePrice', 'optionType'],
     },
@@ -1154,7 +1154,7 @@ async function getHighestReturnStock(args) {
 
 async function getBestStocksUnderPrice(args) {
   const { minPrice, maxPrice, maxMarketCap } = args;
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   const page = await browser.newPage();
 
   // Inline helper function to parse market cap values
@@ -1344,37 +1344,37 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
     }
 
     // Handle partial dates (month/year)
-    if (!targetExpiry) {
-      const parsed = moment(expiryDate, dateFormats, true);
-      if (parsed.isValid()) {
-        let possibleDates = validExpiryDates.map(d => ({
-          date: moment(d, 'DD-MMM-YYYY'),
-          formatted: d
-        }));
+      if (!targetExpiry) {
+        const parsed = moment(expiryDate, dateFormats, true);
+        if (parsed.isValid()) {
+          let possibleDates = validExpiryDates.map(d => ({
+            date: moment(d, 'DD-MMM-YYYY'),
+            formatted: d
+          }));
 
-        // Filter by month/year
-        if (parsed.month() !== undefined) { // Month specified
-          const targetMonth = parsed.month();
-          possibleDates = possibleDates.filter(d => d.date.month() === targetMonth);
-        }
-        if (parsed.year() !== undefined) { // Year specified
-          const targetYear = parsed.year();
-          possibleDates = possibleDates.filter(d => d.date.year() === targetYear);
-        }
+          // Filter by month/year
+          if (parsed.month() !== undefined) { // Month specified
+            const targetMonth = parsed.month();
+            possibleDates = possibleDates.filter(d => d.date.month() === targetMonth);
+          }
+          if (parsed.year() !== undefined) { // Year specified
+            const targetYear = parsed.year();
+            possibleDates = possibleDates.filter(d => d.date.year() === targetYear);
+          }
 
-        if (possibleDates.length === 0) {
-          return { error: `No expiry found for '${expiryDate}'. Valid: ${validExpiryDates.join(', ')}` };
-        }
+          if (possibleDates.length === 0) {
+            return { error: `No expiry found for '${expiryDate}'. Valid: ${validExpiryDates.join(', ')}` };
+          }
 
-        // Sort ascending and pick earliest date for month, latest for year
-        possibleDates.sort((a, b) => a.date - b.date);
-        if (parsed.year() === undefined && parsed.month() !== undefined) {
-          targetExpiry = possibleDates[0].formatted; // Earliest in month
-        } else {
-          targetExpiry = possibleDates[possibleDates.length - 1].formatted; // Latest in year
+          // Sort ascending and pick earliest date for month, latest for year
+          possibleDates.sort((a, b) => a.date - b.date);
+          if (parsed.year() === undefined && parsed.month() !== undefined) {
+            targetExpiry = possibleDates[0].formatted; // Earliest in month
+          } else {
+            targetExpiry = possibleDates[possibleDates.length - 1].formatted; // Latest in year
+          }
         }
       }
-    }
 
     if (!targetExpiry) return { error: `Invalid expiry: ${expiryDate}` };
   } else {
@@ -1555,6 +1555,8 @@ export async function POST(request) {
       function_call: 'auto',
     });
     const message = initialResponse.choices[0].message;
+    console.log(message);
+    
     
     // If OpenAI requested a function call, process that.
     if (message.function_call) {
@@ -1709,7 +1711,7 @@ Data:
 ${JSON.stringify(functionResponse, null, 2)}
 
 Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;  
-        console.log(JSON.stringify(functionResponse, null, 2));
+        // console.log(JSON.stringify(functionResponse, null, 2));
         
         finalResponse = await openai.chat.completions.create({
           model: "gpt-4o-mini",
@@ -1744,7 +1746,7 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
       // Here, we pass the output from the finalResponse generation to our fine-tuned model
       // which has been trained on global feedback data to further refine the answer.
       const finalGeneratedMessage = finalResponse.choices[0].message;
-      console.log("Intermediate final response:", finalGeneratedMessage.content);
+      // console.log("Intermediate final response:", finalGeneratedMessage.content);
       
       const refinedResponse = await openai.chat.completions.create({
         model: "ft:gpt-4o-mini-2024-07-18:profit-millionaire:model20-2025:B2x2Eibk", // Your fine-tuned model trained on feedback examples
@@ -1762,7 +1764,7 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
       });
       
       const refinedMessage = refinedResponse.choices[0].message;
-      console.log("Final refined response:", refinedMessage.content);
+      // console.log("Final refined response:", refinedMessage.content);
       
       // Return the final, refined response.
       return NextResponse.json({

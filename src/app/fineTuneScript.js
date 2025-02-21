@@ -1,6 +1,7 @@
 import fs from "fs";
 import OpenAI from "openai";
-
+import dotenv from 'dotenv';
+dotenv.config();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 
@@ -8,7 +9,7 @@ async function createFineTuneJob() {
     try {
       // Step 1: Upload training file
       const trainingFile = await openai.files.create({
-        file: fs.createReadStream('trainingData.jsonl'),
+        file: fs.createReadStream('src\\app\\trainingData.jsonl'),
         purpose: 'fine-tune'
       });
   
@@ -17,7 +18,7 @@ async function createFineTuneJob() {
       // Step 2: Create fine-tuning job
       const fineTuneJob = await openai.fineTuning.jobs.create({
         training_file: trainingFile.id,
-        model: 'gpt-4o-mini', // or another base model
+        model: 'gpt-4o-mini-2024-07-18', // or another base model
         // hyperparameters: {
         //   n_epochs: 4
         // }
