@@ -9,7 +9,7 @@ async function createFineTuneJob() {
     try {
       // Step 1: Upload training file
       const trainingFile = await openai.files.create({
-        file: fs.createReadStream('src\\app\\trainingData.jsonl'),
+        file: fs.createReadStream('src\\app\\trainingData copy 2.jsonl'),
         purpose: 'fine-tune'
       });
   

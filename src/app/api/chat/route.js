@@ -365,10 +365,10 @@ const functions = [
           enum: ['PE', 'CE'],
           description: 'PE for Put Options, CE for Call Options',
         },
-        // expiryDate: {
-        //   type: 'string',
-        //   description: 'Optional expiry in DD-MMM-YYYY, MMM, YYYY, MMM YYYY format',
-        // }
+        expiryDate: {
+          type: 'string',
+          description: 'Optional expiry in DD-MMM-YYYY format',
+        }
       },
       required: ['symbol', 'strikePrice', 'optionType'],
     },
@@ -1150,7 +1150,7 @@ async function getHighestReturnStock(args) {
 
 
 
-
+//sudo apt-get install -y libatk1.0-0 libatk-bridge2.0-0 libx11-xcb1 libgtk-3-0 libasound2t64 libnss3 libxss1 libxcomposite1 libxrandr2 libgbm1
 
 async function getBestStocksUnderPrice(args) {
   const { minPrice, maxPrice, maxMarketCap } = args;
@@ -1344,37 +1344,37 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
     }
 
     // Handle partial dates (month/year)
-      if (!targetExpiry) {
-        const parsed = moment(expiryDate, dateFormats, true);
-        if (parsed.isValid()) {
-          let possibleDates = validExpiryDates.map(d => ({
-            date: moment(d, 'DD-MMM-YYYY'),
-            formatted: d
-          }));
+    if (!targetExpiry) {
+      const parsed = moment(expiryDate, dateFormats, true);
+      if (parsed.isValid()) {
+        let possibleDates = validExpiryDates.map(d => ({
+          date: moment(d, 'DD-MMM-YYYY'),
+          formatted: d
+        }));
 
-          // Filter by month/year
-          if (parsed.month() !== undefined) { // Month specified
-            const targetMonth = parsed.month();
-            possibleDates = possibleDates.filter(d => d.date.month() === targetMonth);
-          }
-          if (parsed.year() !== undefined) { // Year specified
-            const targetYear = parsed.year();
-            possibleDates = possibleDates.filter(d => d.date.year() === targetYear);
-          }
+        // Filter by month/year
+        if (parsed.month() !== undefined) { // Month specified
+          const targetMonth = parsed.month();
+          possibleDates = possibleDates.filter(d => d.date.month() === targetMonth);
+        }
+        if (parsed.year() !== undefined) { // Year specified
+          const targetYear = parsed.year();
+          possibleDates = possibleDates.filter(d => d.date.year() === targetYear);
+        }
 
-          if (possibleDates.length === 0) {
-            return { error: `No expiry found for '${expiryDate}'. Valid: ${validExpiryDates.join(', ')}` };
-          }
+        if (possibleDates.length === 0) {
+          return { error: `No expiry found for '${expiryDate}'. Valid: ${validExpiryDates.join(', ')}` };
+        }
 
-          // Sort ascending and pick earliest date for month, latest for year
-          possibleDates.sort((a, b) => a.date - b.date);
-          if (parsed.year() === undefined && parsed.month() !== undefined) {
-            targetExpiry = possibleDates[0].formatted; // Earliest in month
-          } else {
-            targetExpiry = possibleDates[possibleDates.length - 1].formatted; // Latest in year
-          }
+        // Sort ascending and pick earliest date for month, latest for year
+        possibleDates.sort((a, b) => a.date - b.date);
+        if (parsed.year() === undefined && parsed.month() !== undefined) {
+          targetExpiry = possibleDates[0].formatted; // Earliest in month
+        } else {
+          targetExpiry = possibleDates[possibleDates.length - 1].formatted; // Latest in year
         }
       }
+    }
 
     if (!targetExpiry) return { error: `Invalid expiry: ${expiryDate}` };
   } else {
@@ -1555,8 +1555,6 @@ export async function POST(request) {
       function_call: 'auto',
     });
     const message = initialResponse.choices[0].message;
-    console.log(message);
-    
     
     // If OpenAI requested a function call, process that.
     if (message.function_call) {
@@ -1710,11 +1708,9 @@ export async function POST(request) {
 Data:
 ${JSON.stringify(functionResponse, null, 2)}
 
-Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;  
-        // console.log(JSON.stringify(functionResponse, null, 2));
-        
+Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;
         finalResponse = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+          model: "ft:gpt-4o-mini-2024-07-18:profit-millionaire:justtest:B3gYFq2m",
           messages: [
             ...messages,
             {
@@ -1727,7 +1723,7 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
                 "- Provide only the data that is directly relevant to the query. Avoid including excessive or extraneous information.\n" +
                 "- Highlight essential data points, such as **current price**, in bold and present all related details in a clear and concise manner.\n" +
                 "Based on the provided input data, generate an in-depth market analysis report that dynamically identifies all significant metrics. Include a detailed explanation of what each metric represents, why it is important, and its implications for investors, along with additional context such as trend analysis, comparisons, or potential risks.\n" +
-                "Ensure your response goes beyond simply listing data points by including clear, explanatory sentences and a narrative that ties the data together. Use markdown headings (like '## Company Profile' and '## Key Financial Metrics') to organize the information. Add numbering with bullet points for heading and subheadings.\n" +
+                "Ensure your response goes beyond simply listing data points by including clear, explanatory sentences and a narrative that ties the data together. Use markdown headings (like '## Company Profile' and '## Key Financial Metrics') to organize the information. Add numbering with bullet points for heading and subheadings\n" +
                 (reports.length > 0
                   ? `User feedback to consider: ${reports.slice(-3).join(". ")}. Address these concerns appropriately.\n\n`
                   : "")
@@ -1741,34 +1737,9 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
           max_tokens: 1000,
         });
       }
-      
-      // --- Step 3: Refine Final Response Using Fine-Tuned Model (Model 3) ---
-      // Here, we pass the output from the finalResponse generation to our fine-tuned model
-      // which has been trained on global feedback data to further refine the answer.
-      const finalGeneratedMessage = finalResponse.choices[0].message;
-      // console.log("Intermediate final response:", finalGeneratedMessage.content);
-      
-      const refinedResponse = await openai.chat.completions.create({
-        model: "ft:gpt-4o-mini-2024-07-18:profit-millionaire:model20-2025:B2x2Eibk", // Your fine-tuned model trained on feedback examples
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a highly trained financial analysis assistant. Your job is to refine the provided response according to our global guidelines, ensuring all necessary disclaimers and context are included.",
-          },
-          // Pass the final generated response as input to be refined.
-          { role: "user", content: finalGeneratedMessage.content },
-        ],
-        temperature: 0.6,
-        max_tokens: 500,
-      });
-      
-      const refinedMessage = refinedResponse.choices[0].message;
-      // console.log("Final refined response:", refinedMessage.content);
-      
-      // Return the final, refined response.
+      console.log(reports);
       return NextResponse.json({
-        ...refinedMessage,
+        ...finalResponse.choices[0].message,
         rawData: functionResponse,
         functionName: message.function_call.name,
       });
