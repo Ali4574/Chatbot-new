@@ -216,14 +216,14 @@ const functions = [
   },
   {
     name: 'get_highest_return_stock',
-    description: 'Scrape the screener website to determine which stock has the highest return over specified period (1month, 3month, 6month, or 1year) and return its name and return percentage.',
+    description: 'Scrape the screener website to determine which stock has the highest return over specified period (only supports 1month, 3month, 6month, or 1year). If asked for unsupported periods, returns closest available data with explanation.',
     parameters: {
       type: 'object',
       properties: {
         period: {
           type: 'string',
           enum: ['1month', '3month', '6month', '1year'],
-          description: 'Time period for ROI calculation.',
+          description: 'Time period for ROI calculation. Only these exact values are supported.',
         },
       },
       required: ['period'],
@@ -367,7 +367,7 @@ const functions = [
         },
         expiryDate: {
           type: 'string',
-          description: 'Optional expiry in DD-MMM-YYYY format',
+          description: 'Optional expiry in DD-MMM-YYYY, MMM, YYYY, MMM-YYYY, MMM YYYY, MMMM, MMMM YYYY format',
         }
       },
       required: ['symbol', 'strikePrice', 'optionType'],
@@ -1306,7 +1306,6 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
     const data = response.data;
 
     // Get current date and filter out expired dates
-    // Filter valid expiry dates (current and future)
     const currentMoment = moment();
     const validExpiryDates = data.records.expiryDates
       .map(expiry => moment(expiry, 'DD-MMM-YYYY', true))
@@ -1319,78 +1318,38 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
     // Parse user-provided expiryDate
     let targetExpiry;
     if (expiryDate) {
-      const dateFormats = [
-      'DD-MMM-YYYY', // e.g., 27-Mar-2025
-      'D-MMM-YYYY',
-      'DD MMM YYYY',
-      'D MMM YYYY',
-      'MMMM D, YYYY',
-      'MMM D, YYYY',
-      'YYYY-MM-DD',
-      'YYYY-M-D',
-      'MMMM YYYY', 
-      'YYYY',
-      'MMM', 
-      'MMMM'
-    ];
-
-    // Try parsing as exact date first
-    const parsedExact = moment(expiryDate, dateFormats, true);
-    if (parsedExact.isValid()) {
-      const exactExpiry = parsedExact.format('DD-MMM-YYYY');
-      if (validExpiryDates.includes(exactExpiry)) {
-        targetExpiry = exactExpiry;
+      const parsedExpiry = moment(expiryDate, ['DD-MMM-YYYY', 'MMM YYYY', 'MMM'], true);
+      if (parsedExpiry.isValid()) {
+        // Find the closest expiry date
+        targetExpiry = validExpiryDates.find(date => 
+          moment(date, 'DD-MMM-YYYY').isSameOrAfter(parsedExpiry)
+        ) || validExpiryDates[0]; // Fallback to nearest expiry
+      } else {
+        targetExpiry = validExpiryDates[0]; // Fallback to nearest expiry
       }
+    } else {
+      targetExpiry = validExpiryDates[0]; // Nearest expiry
     }
 
-    // Handle partial dates (month/year)
-    if (!targetExpiry) {
-      const parsed = moment(expiryDate, dateFormats, true);
-      if (parsed.isValid()) {
-        let possibleDates = validExpiryDates.map(d => ({
-          date: moment(d, 'DD-MMM-YYYY'),
-          formatted: d
-        }));
+    // Find the closest strike price
+    const strikePrices = data.records.data
+      .filter(item => item.expiryDate === targetExpiry)
+      .map(item => item.strikePrice);
 
-        // Filter by month/year
-        if (parsed.month() !== undefined) { // Month specified
-          const targetMonth = parsed.month();
-          possibleDates = possibleDates.filter(d => d.date.month() === targetMonth);
-        }
-        if (parsed.year() !== undefined) { // Year specified
-          const targetYear = parsed.year();
-          possibleDates = possibleDates.filter(d => d.date.year() === targetYear);
-        }
+    const closestStrike = strikePrices.reduce((prev, curr) => 
+      Math.abs(curr - strikePrice) < Math.abs(prev - strikePrice) ? curr : prev
+    );
 
-        if (possibleDates.length === 0) {
-          return { error: `No expiry found for '${expiryDate}'. Valid: ${validExpiryDates.join(', ')}` };
-        }
+    // Find the matching entry
+    const entry = data.records.data.find(item =>
+      item.strikePrice === closestStrike &&
+      item.expiryDate === targetExpiry
+    );
 
-        // Sort ascending and pick earliest date for month, latest for year
-        possibleDates.sort((a, b) => a.date - b.date);
-        if (parsed.year() === undefined && parsed.month() !== undefined) {
-          targetExpiry = possibleDates[0].formatted; // Earliest in month
-        } else {
-          targetExpiry = possibleDates[possibleDates.length - 1].formatted; // Latest in year
-        }
-      }
-    }
+    if (!entry) return { error: 'No data for specified strike/expiry' };
 
-    if (!targetExpiry) return { error: `Invalid expiry: ${expiryDate}` };
-  } else {
-    targetExpiry = validExpiryDates[0]; // Nearest expiry
-  }
-
-  // Find matching strike and expiry
-  const entry = data.records.data.find(item =>
-    item.strikePrice === strikePrice &&
-    item.expiryDate === targetExpiry
-  );
-
-  if (!entry) return { error: 'No data for specified strike/expiry' };
-
-  // Process and return the option data
-  const optionData = entry[optionType];
+    // Process and return the option data
+    const optionData = entry[optionType];
     if (!optionData) return { error: 'Option type not found' };
 
     // Calculate moneyness
@@ -1399,17 +1358,12 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
       ? strikePrice >= underlyingPrice
       : strikePrice <= underlyingPrice;
 
-    // Analyze OI changes
-    const oiAnalysis = optionData.changeinOpenInterest > 0
-      ? 'Open interest is increasing, suggesting growing trader interest.'
-      : 'Open interest is decreasing, indicating a lack of conviction among traders.';
-
-    // Generate recommendation based on the analyzed data
+    // Generate recommendation
     const recommendation = generateRecommendation(optionData, optionType);
 
     return {
       symbol,
-      strikePrice,
+      strikePrice: closestStrike,
       optionType,
       expiryDate: targetExpiry,
       openInterest: optionData.openInterest,
@@ -1419,11 +1373,6 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
       impliedVolatility: optionData.impliedVolatility,
       underlyingValue: underlyingPrice,
       moneyness: isInTheMoney ? 'In-the-money' : 'Out-of-the-money',
-      analysis: {
-        oiTrend: oiAnalysis,
-        volatilityStatus: optionData.impliedVolatility > 40 ? 'High IV' : 'Normal IV',
-        riskRewardRatio: (underlyingPrice / strikePrice).toFixed(2)
-      },
       recommendation
     };
 
@@ -1547,7 +1496,7 @@ export async function POST(request) {
         {
           role: 'system',
           content:
-            "You are a highly specialized financial analyst assistant for company 'profit flow' focused exclusively on Indian stocks, crypto analysis. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable.\n\n",
+            `You are a highly specialized financial analyst assistant for company 'profit flow' focused exclusively on Indian stocks, crypto analysis. Today is ${new Date().toLocaleDateString()} and the current year is ${new Date().getFullYear()}. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable.\n\n`,
         },
         ...messages,
       ],
@@ -1555,6 +1504,8 @@ export async function POST(request) {
       function_call: 'auto',
     });
     const message = initialResponse.choices[0].message;
+    console.log(message);
+    
     
     // If OpenAI requested a function call, process that.
     if (message.function_call) {
