@@ -44,6 +44,8 @@ import {
   Chart as ChartJS,
 } from "chart.js";
 import annotationPlugin from "chartjs-plugin-annotation";
+import Image from "next/image";
+import LanguageIcon from "@mui/icons-material/Language";
 
 // Register chart.js components.
 ChartJS.register(
@@ -106,14 +108,13 @@ const Header = styled(Box)(({ theme }) => ({
   top: 0,
   left: 0,
   right: 0,
-  height: "100px", // Fixed height for header
+  height: "100px",
   backgroundColor: "#0a0a0a",
   zIndex: 1000,
   display: "flex",
-  flexDirection: "column",
-  justifyContent: "center",
+  justifyContent: "space-between",
   alignItems: "center",
-  padding: theme.spacing(1),
+  padding: theme.spacing(2),
 }));
 
 // InputArea: fixed at the bottom with a set height.
@@ -458,6 +459,7 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   // Allow toggling between "line" and "bar" chart types for the price chart.
   const [chartType, setChartType] = useState("line");
+  const [language, setLanguage] = useState("en");
   const messagesEndRef = useRef(null);
 
   // Dynamically import and register the zoom plugin (client side only)
@@ -595,37 +597,93 @@ export default function Chat() {
     }
   };
 
+  const handleLanguageChange = (event, newLanguage) => {
+    if (newLanguage !== null) {
+      setLanguage(newLanguage);
+    }
+  };
+
   return (
     <OuterContainer>
-      {/* Fixed Header */}
       <Header>
-        <Typography variant="h5" sx={{ mb: 2, fontWeight: 300, textAlign: "center" }}>
-          PROFIT FLOW
-        </Typography>
-        {messages.length === 0 && (
-          <Box sx={{ mb: 1, display: "flex", gap: 2, justifyContent: "center" }}>
-            {["top 2 stocks", "price of infosys stock"].map((question, idx) => (
-              <Button
-                key={idx}
-                variant="contained"
-                onClick={() => handleExampleClick(question)}
-                sx={{
-                  borderRadius: "20px",
-                  background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)",
+        {/* Logo on the left */}
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          <Image
+            src="/csmc-logo.png"
+            alt="CSMC Logo"
+            width={80}
+            height={80}
+            priority
+          />
+        </Box>
+
+        {/* Center content (title and example questions) */}
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <Typography variant="h6" sx={{ fontWeight: 200 }}>
+            Chhatrapati Sambhajinagar Municipal Corporation
+          </Typography>
+          {messages.length === 0 && (
+            <Box sx={{ mt: 2, display: "flex", gap: 2, justifyContent: "center", flexWrap: "wrap" }}>
+              {["Why is  Chhatrapati Sambhajinagar called the City of Gates?", "Where is the CSMC head office located?"].map((question, idx) => (
+                <Button
+                  key={idx}
+                  variant="contained"
+                  onClick={() => handleExampleClick(question)}
+                  sx={{
+                    borderRadius: "20px",
+                    background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)",
+                    color: "#fff",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    boxShadow: "0px 3px 5px -1px rgba(0,0,0,0.2)",
+                    "&:hover": {
+                      background: "linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)",
+                    },
+                  }}
+                >
+                  {question}
+                </Button>
+              ))}
+            </Box>
+          )}
+        </Box>
+
+        {/* Language toggle on the right */}
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          <ToggleButtonGroup
+            value={language}
+            exclusive
+            onChange={handleLanguageChange}
+            size="small"
+            sx={{
+              "& .MuiToggleButton-root": {
+                color: "#fff",
+                borderColor: "#444",
+                padding: "4px 10px",
+                "&.Mui-selected": {
+                  backgroundColor: "#2196f3",
                   color: "#fff",
-                  textTransform: "none",
-                  fontWeight: 600,
-                  boxShadow: "0px 3px 5px -1px rgba(0,0,0,0.2)",
                   "&:hover": {
-                    background: "linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)",
+                    backgroundColor: "#1976d2",
                   },
-                }}
-              >
-                {question}
-              </Button>
-            ))}
-          </Box>
-        )}
+                },
+              },
+            }}
+          >
+            <ToggleButton value="en">
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <LanguageIcon fontSize="small" />
+                EN
+              </Box>
+            </ToggleButton>
+            <ToggleButton value="mr">
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <LanguageIcon fontSize="small" />
+                मराठी
+              </Box>
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
       </Header>
 
       {/* Scrollable Message Area */}

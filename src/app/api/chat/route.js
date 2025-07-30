@@ -1491,12 +1491,12 @@ export async function POST(request) {
 
     // Call OpenAI to get the initial assistant response.
     const initialResponse = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
           content:
-            `You are a highly specialized financial analyst assistant for company 'profit flow' focused exclusively on Indian stocks, crypto analysis. Today is ${new Date().toLocaleDateString()} and the current year is ${new Date().getFullYear()}. Provide responses in structured markdown format with clear bullet points, proper spacing between topics, and dynamic chart headings based on the query. Respond in a professional tone and include relevant suggestions when applicable.\n\n`,
+            `You are a helpful, reliable assistant based in  Chhatrapati Sambhajinagar, Maharashtra. You specialize in providing accurate, up-to-date information about the city and the  Chhatrapati Sambhajinagar Municipal Corporation (CSMC)\n\n`,
         },
         ...messages,
       ],
@@ -1661,23 +1661,23 @@ ${JSON.stringify(functionResponse, null, 2)}
 
 Ensure your response is engaging, well-structured, and adapts to the query context without using tables.`;
         finalResponse = await openai.chat.completions.create({
-          model: "ft:gpt-4o-mini-2024-07-18:profit-millionaire:justtest:B3gYFq2m",
+          model: "gpt-4o", //ft:gpt-4o-mini-2024-07-18:profit-millionaire:justtest:B3gYFq2m
           messages: [
             ...messages,
             {
               role: "system",
-              content:
-                "You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format using clear headings and full sentences that form a cohesive narrative. Respond in a professional tone and include relevant suggestions when applicable.\n\n" +
-                "STRICT RULES:\n" +
-                "- Keep response under 100 words.\n" +
-                "- Tailor your language based on the user's technical tone: If the user communicates in a non-technical way, provide clear and simple explanations; if the user uses technical language, adopt a more detailed explanation.\n" +
-                "- Provide only the data that is directly relevant to the query. Avoid including excessive or extraneous information.\n" +
-                "- Highlight essential data points, such as **current price**, in bold and present all related details in a clear and concise manner.\n" +
-                "Based on the provided input data, generate an in-depth market analysis report that dynamically identifies all significant metrics. Include a detailed explanation of what each metric represents, why it is important, and its implications for investors, along with additional context such as trend analysis, comparisons, or potential risks.\n" +
-                "Ensure your response goes beyond simply listing data points by including clear, explanatory sentences and a narrative that ties the data together. Use markdown headings (like '## Company Profile' and '## Key Financial Metrics') to organize the information. Add numbering with bullet points for heading and subheadings\n" +
-                (reports.length > 0
-                  ? `User feedback to consider: ${reports.slice(-3).join(". ")}. Address these concerns appropriately.\n\n`
-                  : "")
+              content: "You are a helpful, reliable assistant based in  Chhatrapati Sambhajinagar, Maharashtra. You specialize in providing accurate, up-to-date information about the city and the  Chhatrapati Sambhajinagar Municipal Corporation (CSMC)"
+                // "You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format using clear headings and full sentences that form a cohesive narrative. Respond in a professional tone and include relevant suggestions when applicable.\n\n" +
+                // "STRICT RULES:\n" +
+                // "- Keep response under 100 words.\n" +
+                // "- Tailor your language based on the user's technical tone: If the user communicates in a non-technical way, provide clear and simple explanations; if the user uses technical language, adopt a more detailed explanation.\n" +
+                // "- Provide only the data that is directly relevant to the query. Avoid including excessive or extraneous information.\n" +
+                // "- Highlight essential data points, such as **current price**, in bold and present all related details in a clear and concise manner.\n" +
+                // "Based on the provided input data, generate an in-depth market analysis report that dynamically identifies all significant metrics. Include a detailed explanation of what each metric represents, why it is important, and its implications for investors, along with additional context such as trend analysis, comparisons, or potential risks.\n" +
+                // "Ensure your response goes beyond simply listing data points by including clear, explanatory sentences and a narrative that ties the data together. Use markdown headings (like '## Company Profile' and '## Key Financial Metrics') to organize the information. Add numbering with bullet points for heading and subheadings\n" +
+                // (reports.length > 0
+                //   ? `User feedback to consider: ${reports.slice(-3).join(". ")}. Address these concerns appropriately.\n\n`
+                //   : "")
             },
             {
               role: "user",
