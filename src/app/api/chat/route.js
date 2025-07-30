@@ -877,7 +877,7 @@ async function getChartData({ symbol, includeAdditionalData }) {
 async function getAllIndices() {
   try {
     const data = await nseLive.allIndices();
-  return data;
+    return data;
   } catch (error) {
     console.error("Error fetching all indices:", error);
     return { error: "Unable to fetch all indices" };
@@ -1321,7 +1321,7 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
       const parsedExpiry = moment(expiryDate, ['DD-MMM-YYYY', 'MMM YYYY', 'MMM'], true);
       if (parsedExpiry.isValid()) {
         // Find the closest expiry date
-        targetExpiry = validExpiryDates.find(date => 
+        targetExpiry = validExpiryDates.find(date =>
           moment(date, 'DD-MMM-YYYY').isSameOrAfter(parsedExpiry)
         ) || validExpiryDates[0]; // Fallback to nearest expiry
       } else {
@@ -1336,7 +1336,7 @@ async function getOptionChainData({ symbol, strikePrice, optionType, expiryDate 
       .filter(item => item.expiryDate === targetExpiry)
       .map(item => item.strikePrice);
 
-    const closestStrike = strikePrices.reduce((prev, curr) => 
+    const closestStrike = strikePrices.reduce((prev, curr) =>
       Math.abs(curr - strikePrice) < Math.abs(prev - strikePrice) ? curr : prev
     );
 
@@ -1495,8 +1495,19 @@ export async function POST(request) {
       messages: [
         {
           role: 'system',
-          content:
-            `You are a helpful, reliable assistant based in  Chhatrapati Sambhajinagar, Maharashtra. You specialize in providing accurate, up-to-date information about the city and the  Chhatrapati Sambhajinagar Municipal Corporation (CSMC)\n\n`,
+          content: `
+You are a helpful, reliable assistant based in Chhatrapati Sambhajinagar (formerly Aurangabad), Maharashtra. 
+You ONLY provide accurate, up-to-date information related to:
+- The city of Chhatrapati Sambhajinagar
+- Local history, culture, events, tourism, and public transport
+- Chhatrapati Sambhajinagar Municipal Corporation (CSMC), including wards, corporators, civic services, elections, and infrastructure
+
+Do NOT answer any questions outside this scope (such as other cities, countries, general knowledge, finance, etc.). 
+If asked about anything unrelated, politely reply: 
+"I'm only able to help with topics related to Chhatrapati Sambhajinagar and its Municipal Corporation (CSMC)."
+
+Answer clearly and factually, and use local references where helpful.
+      `.trim(),
         },
         ...messages,
       ],
@@ -1505,8 +1516,8 @@ export async function POST(request) {
     });
     const message = initialResponse.choices[0].message;
     console.log(message);
-    
-    
+
+
     // If OpenAI requested a function call, process that.
     if (message.function_call) {
       const functionName = message.function_call.name;
@@ -1666,18 +1677,20 @@ Ensure your response is engaging, well-structured, and adapts to the query conte
             ...messages,
             {
               role: "system",
-              content: "You are a helpful, reliable assistant based in  Chhatrapati Sambhajinagar, Maharashtra. You specialize in providing accurate, up-to-date information about the city and the  Chhatrapati Sambhajinagar Municipal Corporation (CSMC)"
-                // "You are a highly specialized financial analyst assistant focused exclusively on Indian stocks and crypto analysis. Provide responses in structured markdown format using clear headings and full sentences that form a cohesive narrative. Respond in a professional tone and include relevant suggestions when applicable.\n\n" +
-                // "STRICT RULES:\n" +
-                // "- Keep response under 100 words.\n" +
-                // "- Tailor your language based on the user's technical tone: If the user communicates in a non-technical way, provide clear and simple explanations; if the user uses technical language, adopt a more detailed explanation.\n" +
-                // "- Provide only the data that is directly relevant to the query. Avoid including excessive or extraneous information.\n" +
-                // "- Highlight essential data points, such as **current price**, in bold and present all related details in a clear and concise manner.\n" +
-                // "Based on the provided input data, generate an in-depth market analysis report that dynamically identifies all significant metrics. Include a detailed explanation of what each metric represents, why it is important, and its implications for investors, along with additional context such as trend analysis, comparisons, or potential risks.\n" +
-                // "Ensure your response goes beyond simply listing data points by including clear, explanatory sentences and a narrative that ties the data together. Use markdown headings (like '## Company Profile' and '## Key Financial Metrics') to organize the information. Add numbering with bullet points for heading and subheadings\n" +
-                // (reports.length > 0
-                //   ? `User feedback to consider: ${reports.slice(-3).join(". ")}. Address these concerns appropriately.\n\n`
-                //   : "")
+              content: `
+You are a helpful, reliable assistant based in **Chhatrapati Sambhajinagar**, Maharashtra. 
+You specialize in providing accurate, up-to-date information strictly related to:
+
+- Chhatrapati Sambhajinagar city (formerly Aurangabad)
+- Local tourism, culture, transport, education, events, and history
+- Chhatrapati Sambhajinagar Municipal Corporation (CSMC), including wards, corporators, services, complaints, taxes, elections, and city development
+
+❗ You must NOT answer questions unrelated to Chhatrapati Sambhajinagar or CSMC.
+If a user asks about another city, topic, or domain, respond politely with:
+"I'm only able to assist with topics related to Chhatrapati Sambhajinagar and its Municipal Corporation (CSMC)."
+
+Stay factual, concise, and use a respectful local tone.
+      `.trim(),
             },
             {
               role: "user",
