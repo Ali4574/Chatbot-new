@@ -784,7 +784,7 @@ export default function Chat() {
                   handleSubmit(e);
                 }
               }}
-              placeholder="Ask for stock/crypto price"
+              placeholder="Need info on CSMC or Chhatrapati Sambhajinagar?"
               sx={{
                 "& .MuiOutlinedInput-root": {
                   backgroundColor: "#1e1e1e",
