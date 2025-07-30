@@ -618,32 +618,59 @@ export default function Chat() {
         </Box>
 
         {/* Center content (title and example questions) */}
-        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center",mt: 4, pt: 2 }}>
           <Typography variant="h6" sx={{ fontWeight: 200 }}>
             Chhatrapati Sambhajinagar Municipal Corporation
           </Typography>
           {messages.length === 0 && (
-            <Box sx={{ mt: 2, display: "flex", gap: 2, justifyContent: "center", flexWrap: "wrap" }}>
-              {["Why is  Chhatrapati Sambhajinagar called the City of Gates?", "Where is the CSMC head office located?"].map((question, idx) => (
-                <Button
-                  key={idx}
-                  variant="contained"
-                  onClick={() => handleExampleClick(question)}
-                  sx={{
-                    borderRadius: "20px",
-                    background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)",
-                    color: "#fff",
-                    textTransform: "none",
-                    fontWeight: 600,
-                    boxShadow: "0px 3px 5px -1px rgba(0,0,0,0.2)",
-                    "&:hover": {
-                      background: "linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)",
-                    },
-                  }}
-                >
-                  {question}
-                </Button>
-              ))}
+            <Box sx={{ mt: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+              {/* English Questions Row */}
+              <Box sx={{ display: "flex", gap: 2, justifyContent: "center", flexWrap: "wrap" }}>
+                {["How to obtain birth certificate", "Where is the CSMC head office located?"].map((question, idx) => (
+                  <Button
+                    key={idx}
+                    variant="contained"
+                    onClick={() => handleExampleClick(question)}
+                    sx={{
+                      borderRadius: "20px",
+                      background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)",
+                      color: "#fff",
+                      textTransform: "none",
+                      fontWeight: 600,
+                      boxShadow: "0px 3px 5px -1px rgba(0,0,0,0.2)",
+                      "&:hover": {
+                        background: "linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)",
+                      },
+                    }}
+                  >
+                    {question}
+                  </Button>
+                ))}
+              </Box>
+
+              {/* Marathi Questions Row */}
+              <Box sx={{ display: "flex", gap: 2, justifyContent: "center", flexWrap: "wrap" }}>
+                {["मृत्यू प्रमाणपत्र कसे मिळवावे?", "मालमत्ता कर कसा मोजला जातो?"].map((question, idx) => (
+                  <Button
+                    key={idx}
+                    variant="contained"
+                    onClick={() => handleExampleClick(question)}
+                    sx={{
+                      borderRadius: "20px",
+                      background: "linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)",
+                      color: "#fff",
+                      textTransform: "none",
+                      fontWeight: 600,
+                      boxShadow: "0px 3px 5px -1px rgba(0,0,0,0.2)",
+                      "&:hover": {
+                        background: "linear-gradient(45deg, #21cbf3 30%, #2196f3 90%)",
+                      },
+                    }}
+                  >
+                    {question}
+                  </Button>
+                ))}
+              </Box>
             </Box>
           )}
         </Box>
